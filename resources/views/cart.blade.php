@@ -4,114 +4,567 @@
 
 @section('content')
 <section class="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
+
+    {{-- HEADER --}}
     <div class="mb-6 sm:mb-8 flex flex-col gap-4">
+
         <div>
-            <span class="text-xs font-black text-orange-500 uppercase tracking-widest">Keranjang</span>
-            <h1 class="text-2xl sm:text-3xl md:text-4xl font-black text-slate-900 dark:text-white mt-2">Ringkasan Pesanan Anda</h1>
-            <p class="text-sm text-slate-500 dark:text-slate-400 mt-2">Kelola produk, jumlah, dan lihat total sebelum checkout.</p>
+            <span class="text-xs font-black text-orange-500 uppercase tracking-widest">
+                Keranjang
+            </span>
+
+            <h1 class="text-2xl sm:text-3xl md:text-4xl font-black text-slate-900 dark:text-white mt-2">
+                Ringkasan Pesanan Anda
+            </h1>
+
+            <p class="text-sm text-slate-500 dark:text-slate-400 mt-2">
+                Kelola produk, jumlah, promo, dan lihat total sebelum checkout.
+            </p>
         </div>
-        <a href="{{ route('katalog') }}" class="w-full sm:w-auto text-center text-xs font-black uppercase tracking-widest px-4 py-3 rounded-full bg-slate-900 text-white hover:bg-slate-800 transition">
+
+
+        <a
+            href="{{ route('katalog') }}"
+            class="w-full sm:w-auto text-center text-xs font-black uppercase tracking-widest px-4 py-3 rounded-full bg-slate-900 text-white hover:bg-slate-800 transition"
+        >
             Lanjut Belanja
         </a>
+
     </div>
+
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+
+        {{-- =========================================================
+             DAFTAR PRODUK
+        ========================================================== --}}
         <div class="lg:col-span-2 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-4 sm:p-6 shadow-sm">
+
             @if(count($cartItems) === 0)
+
+                {{-- EMPTY CART --}}
                 <div class="text-center py-20">
-                    <p class="text-lg font-black text-slate-900 dark:text-white">Keranjang Anda masih kosong.</p>
-                    <p class="text-sm text-slate-500 dark:text-slate-400 mt-3">Tambahkan produk untuk melihat ringkasan pesanan dan detail harga.</p>
-                    <a href="{{ route('katalog') }}" class="mt-6 inline-block px-6 py-3 rounded-full bg-orange-500 text-slate-950 font-black uppercase text-xs tracking-wider transition hover:bg-orange-600">Jelajahi Katalog</a>
+
+                    <p class="text-lg font-black text-slate-900 dark:text-white">
+                        Keranjang Anda masih kosong.
+                    </p>
+
+                    <p class="text-sm text-slate-500 dark:text-slate-400 mt-3">
+                        Tambahkan produk untuk melihat ringkasan pesanan dan detail harga.
+                    </p>
+
+                    <a
+                        href="{{ route('katalog') }}"
+                        class="mt-6 inline-block px-6 py-3 rounded-full bg-orange-500 text-slate-950 font-black uppercase text-xs tracking-wider transition hover:bg-orange-600"
+                    >
+                        Jelajahi Katalog
+                    </a>
+
                 </div>
+
             @else
+
                 <div class="space-y-4">
+
                     @foreach($cartItems as $item)
+
+                        @php
+
+                            $promo = strtolower(
+                                trim((string) ($item['promo'] ?? ''))
+                            );
+
+                            $isDiscountPromo =
+                                $promo === 'diskon 10%';
+
+                            $isFreeShippingPromo =
+                                $promo === 'gratis ongkir';
+
+                            $itemDiscount =
+                                $isDiscountPromo
+                                    ? ((float) $item['subtotal'] * 0.10)
+                                    : 0;
+
+                            $itemAfterDiscount =
+                                max(
+                                    0,
+                                    (float) $item['subtotal'] - $itemDiscount
+                                );
+
+                        @endphp
+
+
+                        {{-- =================================================
+                             PRODUCT CARD
+                        ================================================== --}}
                         <div class="rounded-3xl border border-slate-200 dark:border-slate-800 p-3 sm:p-4 bg-slate-50 dark:bg-slate-950">
+
                             <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                                <div>
-                                    <h2 class="text-sm font-black text-slate-900 dark:text-white">{{ $item['nama'] }}</h2>
-                                    <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Harga satuan: Rp {{ number_format($item['harga'], 0, ',', '.') }}</p>
-                                    <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Stok tersedia: {{ $item['stok'] }}</p>
+
+
+                                {{-- PRODUCT INFO --}}
+                                <div class="min-w-0">
+
+                                    <h2 class="text-sm font-black text-slate-900 dark:text-white">
+                                        {{ $item['nama'] }}
+                                    </h2>
+
+
+                                    <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                                        Harga satuan:
+                                        Rp {{ number_format($item['harga'], 0, ',', '.') }}
+                                    </p>
+
+
+                                    <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                                        Stok tersedia:
+                                        {{ $item['stok'] }}
+                                    </p>
+
+
+                                    {{-- PROMO --}}
+                                    @if($isDiscountPromo)
+
+                                        <span class="inline-flex items-center mt-2 px-2 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[9px] font-black uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+                                            Diskon 10%
+                                        </span>
+
+                                    @elseif($isFreeShippingPromo)
+
+                                        <span class="inline-flex items-center mt-2 px-2 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-[9px] font-black uppercase tracking-wide text-blue-600 dark:text-blue-400">
+                                            Gratis Ongkir
+                                        </span>
+
+                                    @endif
+
                                 </div>
+
+
+                                {{-- ITEM PRICE --}}
                                 <div class="text-right">
-                                    <p class="text-xs font-black uppercase text-slate-400 tracking-widest">Subtotal</p>
-                                    <p class="text-base font-black text-slate-900 dark:text-white mt-1">Rp {{ number_format($item['subtotal'], 0, ',', '.') }}</p>
+
+                                    <p class="text-xs font-black uppercase text-slate-400 tracking-widest">
+                                        Subtotal
+                                    </p>
+
+
+                                    @if($isDiscountPromo)
+
+                                        <p class="text-xs text-slate-400 line-through mt-1">
+                                            Rp {{ number_format($item['subtotal'], 0, ',', '.') }}
+                                        </p>
+
+                                        <p class="text-base font-black text-emerald-600 dark:text-emerald-400 mt-1">
+                                            Rp {{ number_format($itemAfterDiscount, 0, ',', '.') }}
+                                        </p>
+
+                                        <p class="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 mt-1">
+                                            Hemat Rp {{ number_format($itemDiscount, 0, ',', '.') }}
+                                        </p>
+
+                                    @else
+
+                                        <p class="text-base font-black text-slate-900 dark:text-white mt-1">
+                                            Rp {{ number_format($item['subtotal'], 0, ',', '.') }}
+                                        </p>
+
+                                    @endif
+
                                 </div>
+
                             </div>
 
+
+                            {{-- =================================================
+                                 QUANTITY + REMOVE
+                            ================================================== --}}
                             <div class="mt-4 grid grid-cols-1 gap-3 items-end">
+
                                 <div class="flex flex-col gap-3">
+
+
+                                    {{-- PLUS MINUS --}}
                                     <div class="flex flex-col sm:flex-row sm:items-center gap-2">
-                                        <label class="text-[11px] font-bold text-slate-500 dark:text-slate-400">Jumlah</label>
+
+                                        <label class="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                                            Jumlah
+                                        </label>
+
+
                                         <div class="flex items-center gap-2">
-                                            <form method="POST" action="{{ route('cart.update') }}">
+
+                                            {{-- MINUS --}}
+                                            <form
+                                                method="POST"
+                                                action="{{ route('cart.update') }}"
+                                            >
+
                                                 @csrf
-                                                <input type="hidden" name="product_id" value="{{ $item['id'] }}">
-                                                <input type="hidden" name="delta" value="-1">
-                                                <button type="submit" class="w-9 h-9 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 text-lg font-black">−</button>
+
+                                                <input
+                                                    type="hidden"
+                                                    name="product_id"
+                                                    value="{{ $item['id'] }}"
+                                                >
+
+                                                <input
+                                                    type="hidden"
+                                                    name="delta"
+                                                    value="-1"
+                                                >
+
+                                                <button
+                                                    type="submit"
+                                                    class="w-9 h-9 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 text-lg font-black"
+                                                >
+                                                    −
+                                                </button>
+
                                             </form>
-                                            <span class="min-w-12 text-center rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-3 py-2 text-sm font-black text-slate-900 dark:text-slate-100">{{ $item['quantity'] }}</span>
-                                            <form method="POST" action="{{ route('cart.update') }}">
+
+
+                                            {{-- QUANTITY --}}
+                                            <span class="min-w-12 text-center rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-3 py-2 text-sm font-black text-slate-900 dark:text-slate-100">
+                                                {{ $item['quantity'] }}
+                                            </span>
+
+
+                                            {{-- PLUS --}}
+                                            <form
+                                                method="POST"
+                                                action="{{ route('cart.update') }}"
+                                            >
+
                                                 @csrf
-                                                <input type="hidden" name="product_id" value="{{ $item['id'] }}">
-                                                <input type="hidden" name="delta" value="1">
-                                                <button type="submit" class="w-9 h-9 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 text-lg font-black">+</button>
+
+                                                <input
+                                                    type="hidden"
+                                                    name="product_id"
+                                                    value="{{ $item['id'] }}"
+                                                >
+
+                                                <input
+                                                    type="hidden"
+                                                    name="delta"
+                                                    value="1"
+                                                >
+
+                                                <button
+                                                    type="submit"
+                                                    class="w-9 h-9 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 text-lg font-black"
+                                                >
+                                                    +
+                                                </button>
+
                                             </form>
+
                                         </div>
+
                                     </div>
 
-                                    <form method="POST" action="{{ route('cart.update') }}" class="flex flex-col sm:flex-row gap-2">
+
+                                    {{-- MANUAL QUANTITY --}}
+                                    <form
+                                        method="POST"
+                                        action="{{ route('cart.update') }}"
+                                        class="flex flex-col sm:flex-row gap-2"
+                                    >
+
                                         @csrf
-                                        <input type="hidden" name="product_id" value="{{ $item['id'] }}">
-                                        <input type="number" name="quantity" min="1" max="{{ $item['stok'] }}" value="{{ $item['quantity'] }}" class="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm" />
-                                        <button type="submit" class="w-full sm:w-auto rounded-xl bg-slate-900 text-white px-4 py-2 text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition">Perbarui</button>
+
+                                        <input
+                                            type="hidden"
+                                            name="product_id"
+                                            value="{{ $item['id'] }}"
+                                        >
+
+                                        <input
+                                            type="number"
+                                            name="quantity"
+                                            min="1"
+                                            max="{{ $item['stok'] }}"
+                                            value="{{ $item['quantity'] }}"
+                                            class="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm"
+                                        />
+
+                                        <button
+                                            type="submit"
+                                            class="w-full sm:w-auto rounded-xl bg-slate-900 text-white px-4 py-2 text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition"
+                                        >
+                                            Perbarui
+                                        </button>
+
                                     </form>
+
                                 </div>
 
-                                <form method="POST" action="{{ route('cart.remove') }}" class="w-full sm:text-right">
+
+                                {{-- REMOVE --}}
+                                <form
+                                    method="POST"
+                                    action="{{ route('cart.remove') }}"
+                                    class="w-full sm:text-right"
+                                >
+
                                     @csrf
-                                    <input type="hidden" name="product_id" value="{{ $item['id'] }}">
-                                    <button type="submit" class="w-full sm:w-auto rounded-xl bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white px-4 py-3 text-xs font-black uppercase tracking-widest transition">Hapus</button>
+
+                                    <input
+                                        type="hidden"
+                                        name="product_id"
+                                        value="{{ $item['id'] }}"
+                                    >
+
+                                    <button
+                                        type="submit"
+                                        class="w-full sm:w-auto rounded-xl bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white px-4 py-3 text-xs font-black uppercase tracking-widest transition"
+                                    >
+                                        Hapus
+                                    </button>
+
                                 </form>
+
                             </div>
+
                         </div>
+
                     @endforeach
+
                 </div>
+
             @endif
+
         </div>
 
+
+        {{-- =========================================================
+             RINGKASAN PESANAN
+        ========================================================== --}}
         <aside class="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-4 sm:p-6 shadow-sm mt-2 lg:mt-0">
-            <p class="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">Ringkasan</p>
+
+            <p class="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">
+                Ringkasan
+            </p>
+
+
+            @php
+
+                /*
+                |--------------------------------------------------------------------------
+                | HITUNG DISKON KERANJANG
+                |--------------------------------------------------------------------------
+                */
+
+                $cartDiscount = 0;
+
+                $hasFreeShipping = false;
+
+                foreach ($cartItems as $cartItem) {
+
+                    $cartPromo = strtolower(
+                        trim((string) ($cartItem['promo'] ?? ''))
+                    );
+
+                    if ($cartPromo === 'diskon 10%') {
+
+                        $cartDiscount +=
+                            ((float) ($cartItem['subtotal'] ?? 0)) * 0.10;
+
+                    }
+
+                    if ($cartPromo === 'gratis ongkir') {
+
+                        $hasFreeShipping = true;
+
+                    }
+
+                }
+
+                $cartDiscount =
+                    round($cartDiscount, 2);
+
+                $subtotalAfterDiscount =
+                    max(
+                        0,
+                        (float) $total - $cartDiscount
+                    );
+
+            @endphp
+
+
             <div class="mt-4 space-y-4">
+
+
+                {{-- TOTAL ITEM --}}
                 <div class="flex items-center justify-between text-sm text-slate-500 dark:text-slate-400">
-                    <span>Total item</span>
-                    <span>{{ $totalItems }}</span>
+
+                    <span>
+                        Total item
+                    </span>
+
+                    <span class="font-semibold text-slate-900 dark:text-white">
+                        {{ $totalItems }}
+                    </span>
+
                 </div>
+
+
+                {{-- SUBTOTAL --}}
                 <div class="flex items-center justify-between text-sm text-slate-500 dark:text-slate-400">
-                    <span>Subtotal</span>
-                    <span>Rp {{ number_format($total, 0, ',', '.') }}</span>
+
+                    <span>
+                        Subtotal
+                    </span>
+
+                    <span class="font-semibold text-slate-900 dark:text-white">
+                        Rp {{ number_format($total, 0, ',', '.') }}
+                    </span>
+
                 </div>
-                <div class="border-t border-slate-200 dark:border-slate-800 pt-4">
-                    <div class="flex items-center justify-between text-base font-black text-slate-900 dark:text-white">
-                        <span>Total</span>
-                        <span>Rp {{ number_format($total, 0, ',', '.') }}</span>
+
+
+                {{-- DISKON --}}
+                @if($cartDiscount > 0)
+
+                    <div class="flex items-center justify-between text-sm text-emerald-600 dark:text-emerald-400">
+
+                        <span class="font-semibold">
+                            Diskon 10%
+                        </span>
+
+                        <span class="font-black">
+                            - Rp {{ number_format($cartDiscount, 0, ',', '.') }}
+                        </span>
+
                     </div>
+
+
+                    {{-- SUBTOTAL SETELAH DISKON --}}
+                    <div class="flex items-center justify-between text-sm text-slate-500 dark:text-slate-400">
+
+                        <span>
+                            Subtotal Setelah Diskon
+                        </span>
+
+                        <span class="font-bold text-slate-900 dark:text-white">
+                            Rp {{ number_format($subtotalAfterDiscount, 0, ',', '.') }}
+                        </span>
+
+                    </div>
+
+                @endif
+
+
+                {{-- GRATIS ONGKIR --}}
+                @if($hasFreeShipping)
+
+                    <div class="rounded-2xl bg-blue-500/10 border border-blue-500/20 p-3">
+
+                        <p class="text-[11px] font-black text-blue-600 dark:text-blue-400">
+                            ✓ Gratis Ongkir Aktif
+                        </p>
+
+                        <p class="text-[10px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                            Pesanan Anda mendapatkan gratis ongkir karena terdapat produk dengan promo Gratis Ongkir.
+                        </p>
+
+                    </div>
+
+                @endif
+
+
+                {{-- TOTAL --}}
+                <div class="border-t border-slate-200 dark:border-slate-800 pt-4">
+
+                    <div class="flex items-center justify-between text-base font-black text-slate-900 dark:text-white">
+
+                        <span>
+                            Total
+                        </span>
+
+                        <span class="text-orange-500">
+                            Rp {{ number_format($subtotalAfterDiscount, 0, ',', '.') }}
+                        </span>
+
+                    </div>
+
                 </div>
+
+
+                {{-- HEMAT --}}
+                @if($cartDiscount > 0)
+
+                    <div class="rounded-2xl bg-emerald-500/10 border border-emerald-500/20 p-3">
+
+                        <div class="flex items-center justify-between">
+
+                            <span class="text-[10px] font-black uppercase tracking-widest text-emerald-600 dark:text-emerald-400">
+                                Total Hemat
+                            </span>
+
+                            <span class="text-sm font-black text-emerald-600 dark:text-emerald-400">
+                                Rp {{ number_format($cartDiscount, 0, ',', '.') }}
+                            </span>
+
+                        </div>
+
+                    </div>
+
+                @endif
+
+
+                {{-- ACTION --}}
                 <div class="space-y-3">
+
                     @if(count($cartItems) > 0)
-                        <a href="{{ route('checkout.index') }}" class="block w-full rounded-3xl bg-orange-500 text-slate-950 text-sm font-black uppercase tracking-widest py-3 text-center hover:bg-orange-600 transition">Lanjut ke Checkout</a>
+
+                        <a
+                            href="{{ route('checkout.index') }}"
+                            class="block w-full rounded-3xl bg-orange-500 text-slate-950 text-sm font-black uppercase tracking-widest py-3 text-center hover:bg-orange-600 transition"
+                        >
+                            Lanjut ke Checkout
+                        </a>
+
                     @else
-                        <button type="button" class="w-full rounded-3xl bg-orange-500/60 text-slate-950 text-sm font-black uppercase tracking-widest py-3 cursor-not-allowed" disabled>Lanjut ke Checkout</button>
+
+                        <button
+                            type="button"
+                            class="w-full rounded-3xl bg-orange-500/60 text-slate-950 text-sm font-black uppercase tracking-widest py-3 cursor-not-allowed"
+                            disabled
+                        >
+                            Lanjut ke Checkout
+                        </button>
+
                     @endif
+
+
                     @if(count($cartItems) > 0)
-                        <form method="POST" action="{{ route('cart.clear') }}">
+
+                        <form
+                            method="POST"
+                            action="{{ route('cart.clear') }}"
+                        >
+
                             @csrf
-                            <button type="submit" class="w-full rounded-3xl border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 text-sm font-black uppercase tracking-widest py-3 hover:bg-slate-100 dark:hover:bg-slate-800 transition">Bersihkan Keranjang</button>
+
+                            <button
+                                type="submit"
+                                class="w-full rounded-3xl border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 text-sm font-black uppercase tracking-widest py-3 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                            >
+                                Bersihkan Keranjang
+                            </button>
+
                         </form>
+
                     @endif
+
                 </div>
+
             </div>
+
         </aside>
+
     </div>
+
 </section>
 @endsection

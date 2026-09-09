@@ -8,10 +8,10 @@ use Illuminate\Support\Facades\Log;
 class PaymentService
 {
     /**
-     * Mengecek apakah sistem pembayaran lokal tersedia.
+     * Mengecek apakah sistem pembayaran tersedia.
      *
-     * Karena Xendit sudah dihapus, sistem pembayaran
-     * sekarang menggunakan simulasi lokal.
+     * Saat ini sistem pembayaran menggunakan
+     * simulasi lokal, bukan Xendit.
      */
     public function isConfigured(): bool
     {
@@ -22,70 +22,74 @@ class PaymentService
      * Membuat Virtual Account BCA SIMULASI.
      *
      * CATATAN:
-     * Nomor ini bukan Virtual Account BCA sungguhan.
-     * Nomor dibuat otomatis untuk kebutuhan testing
-     * website AtapIndonesia.
-     *
-     * @return string Nomor Virtual Account simulasi
+     * Nomor VA ini adalah nomor simulasi untuk testing
+     * website AtapIndonesia dan bukan VA BCA sungguhan.
      */
-    public function createBcaVirtualAccount(Order $order): string
-    {
+    public function createBcaVirtualAccount(
+        Order $order
+    ): string {
+
         try {
-            /*
-             * Jika order sudah memiliki nomor VA,
-             * gunakan nomor yang sudah ada.
-             */
+
+            // =====================================================
+            // JIKA SUDAH ADA VA
+            // =====================================================
+
             if (!empty($order->virtual_account)) {
+
                 return $order->virtual_account;
             }
 
-            /*
-             * Membuat nomor VA simulasi 10 digit.
-             *
-             * Prefix 70001 digunakan sebagai penanda
-             * Virtual Account simulasi AtapIndonesia.
-             */
-            $virtualAccountNumber =
-                '70001' .
-                str_pad(
-                    (string) random_int(10000, 99999),
-                    5,
-                    '0',
-                    STR_PAD_LEFT
-                );
+            // =====================================================
+            // BUAT VA BARU
+            // =====================================================
 
-            /*
-             * Pastikan nomor VA tidak sedang digunakan
-             * oleh order lain.
-             */
-            while (
-                Order::where(
-                    'virtual_account',
-                    $virtualAccountNumber
-                )->exists()
-            ) {
+            do {
+
+                /*
+                 * Prefix:
+                 * 70001 = penanda VA simulasi AtapIndonesia
+                 *
+                 * Total:
+                 * 5 digit prefix + 5 digit random = 10 digit
+                 */
+
                 $virtualAccountNumber =
-                    '70001' .
-                    str_pad(
-                        (string) random_int(10000, 99999),
+                    '70001'
+                    . str_pad(
+                        (string) random_int(
+                            10000,
+                            99999
+                        ),
                         5,
                         '0',
                         STR_PAD_LEFT
                     );
-            }
 
-            /*
-             * Simpan nomor VA ke order.
-             */
+            } while (
+                Order::where(
+                    'virtual_account',
+                    $virtualAccountNumber
+                )->exists()
+            );
+
+            // =====================================================
+            // SIMPAN VA
+            // =====================================================
+
             $order->update([
-                'virtual_account' => $virtualAccountNumber,
+                'virtual_account' =>
+                    $virtualAccountNumber,
             ]);
 
             Log::info(
-                'Virtual Account simulasi berhasil dibuat',
+                'Virtual Account BCA simulasi berhasil dibuat.',
                 [
-                    'order_id' => $order->order_id,
-                    'virtual_account' => $virtualAccountNumber,
+                    'order_id' =>
+                        $order->order_id,
+
+                    'virtual_account' =>
+                        $virtualAccountNumber,
                 ]
             );
 
@@ -94,16 +98,19 @@ class PaymentService
         } catch (\Throwable $e) {
 
             Log::error(
-                'Gagal membuat Virtual Account simulasi',
+                'Gagal membuat Virtual Account BCA simulasi.',
                 [
-                    'order_id' => $order->order_id,
-                    'error' => $e->getMessage(),
+                    'order_id' =>
+                        $order->order_id,
+
+                    'error' =>
+                        $e->getMessage(),
                 ]
             );
 
             throw new \Exception(
-                'Gagal membuat Virtual Account: ' .
-                $e->getMessage()
+                'Gagal membuat Virtual Account: '
+                . $e->getMessage()
             );
         }
     }
@@ -111,17 +118,120 @@ class PaymentService
     /**
      * Membuat halaman pembayaran lokal.
      *
-     * Method ini dipertahankan agar kode lama yang masih
-     * memanggil createInvoice() tidak langsung error.
+     * Untuk metode VA / BCA:
+     * - membuat VA
+     * - menyimpan VA ke order
+     * - mengarahkan user ke halaman order
      *
-     * Tidak ada lagi koneksi ke Xendit.
+     * Untuk metode bank:
+     * - langsung menuju halaman order
      */
     public function createInvoice(
         Order $order,
         ?string $paymentMethod = null
     ): string {
-        return route('orders.show', [
-            'order_id' => $order->order_id,
-        ]);
+
+        // =====================================================
+        // NORMALISASI METODE PEMBAYARAN
+        // =====================================================
+
+        $method =
+            strtolower(
+                trim(
+                    (string) (
+                        $paymentMethod
+                        ?? $order->payment_method
+                        ?? 'va'
+                    )
+                )
+            );
+
+        // =====================================================
+        // VIRTUAL ACCOUNT BCA
+        // =====================================================
+
+        if (
+            in_array(
+                $method,
+                [
+                    'va',
+                    'bca',
+                    'bca_va',
+                    'virtual_account',
+                    'virtual-account',
+                ],
+                true
+            )
+        ) {
+
+            $virtualAccount =
+                $this->createBcaVirtualAccount(
+                    $order
+                );
+
+            Log::info(
+                'Pembayaran VA BCA berhasil disiapkan.',
+                [
+                    'order_id' =>
+                        $order->order_id,
+
+                    'virtual_account' =>
+                        $virtualAccount,
+
+                    'amount' =>
+                        $order->grand_total,
+                ]
+            );
+        }
+
+        // =====================================================
+        // TRANSFER BANK MANUAL
+        // =====================================================
+
+        elseif (
+            $method === 'bank'
+        ) {
+
+            Log::info(
+                'Pembayaran transfer bank manual dipilih.',
+                [
+                    'order_id' =>
+                        $order->order_id,
+
+                    'amount' =>
+                        $order->grand_total,
+                ]
+            );
+        }
+
+        // =====================================================
+        // METODE LAIN
+        // =====================================================
+
+        else {
+
+            Log::info(
+                'Metode pembayaran lokal diproses.',
+                [
+                    'order_id' =>
+                        $order->order_id,
+
+                    'payment_method' =>
+                        $method,
+                ]
+            );
+        }
+
+        // =====================================================
+        // ARAHKAN KE HALAMAN ORDER
+        // =====================================================
+
+        return route(
+            'orders.show',
+            [
+                'order_id' =>
+                    $order->order_id,
+            ]
+        );
     }
 }

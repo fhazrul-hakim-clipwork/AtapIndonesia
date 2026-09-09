@@ -14,6 +14,8 @@ use Illuminate\Support\Facades\Mail;
 use App\Mail\WelcomeEmail;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use App\Services\PaymentService;
 use App\Services\ShippingService;
 
@@ -28,6 +30,27 @@ class TalangController extends Controller
     ) {
         $this->shippingService = $shippingService;
         $this->paymentService = $paymentService;
+    }
+
+    // ===========================================================
+    // AUTH USER HELPER
+    // ===========================================================
+
+    private function currentUser(): ?User
+    {
+        if (Auth::guard('admin')->check()) {
+            return Auth::guard('admin')->user();
+        }
+
+        if (Auth::guard('pembeli')->check()) {
+            return Auth::guard('pembeli')->user();
+        }
+
+        if (Auth::check()) {
+            return Auth::user();
+        }
+
+        return null;
     }
 
     // ===========================================================
@@ -49,7 +72,7 @@ class TalangController extends Controller
     }
 
     // ===========================================================
-    // SISTEM PAKAR (KALKULATOR CERDAS)
+    // SISTEM PAKAR
     // ===========================================================
 
     public function hitung(Request $request)
@@ -88,20 +111,21 @@ class TalangController extends Controller
         $hujan = $request->curah_hujan;
         $material = $request->material;
 
-        $jenis_bangunan =
-            $request->jenis_bangunan ?? 'Rumah Tinggal';
+        $jenis_bangunan = $request->jenis_bangunan
+            ?? 'Rumah Tinggal';
 
-        $kemiringan =
-            $request->kemiringan ?? 'Sedang';
+        $kemiringan = $request->kemiringan
+            ?? 'Sedang';
 
-        $jumlah_pipa =
-            (int) ($request->jumlah_pipa ?? 2);
+        $jumlah_pipa = (int) (
+            $request->jumlah_pipa ?? 2
+        );
 
         // Intensitas hujan
         $intensitas_mm_jam = match (true) {
-            str_contains($hujan, 'Ringan')  => 50,
+            str_contains($hujan, 'Ringan') => 50,
             str_contains($hujan, 'Sedang') => 100,
-            str_contains($hujan, 'Lebat')  => 150,
+            str_contains($hujan, 'Lebat') => 150,
             str_contains($hujan, 'Sangat') => 200,
             default => 100,
         };
@@ -110,11 +134,11 @@ class TalangController extends Controller
         $faktorKemiringan = match (true) {
             str_contains($kemiringan, 'Landai') => 1.0,
             str_contains($kemiringan, 'Sedang') => 1.2,
-            str_contains($kemiringan, 'Curam')  => 1.4,
+            str_contains($kemiringan, 'Curam') => 1.4,
             default => 1.2,
         };
 
-        // Faktor keamanan
+        // Safety factor
         $safetyFactor = match (true) {
             str_contains($jenis_bangunan, 'Rumah Tinggal') => 1.1,
             str_contains($jenis_bangunan, 'Komersial') => 1.2,
@@ -125,14 +149,15 @@ class TalangController extends Controller
         $luasAtap = $panjang * $lebar;
 
         $luasEfektif =
-            $luasAtap * $faktorKemiringan;
+            $luasAtap *
+            $faktorKemiringan;
 
         $debitAir =
             ($intensitas_mm_jam / 3600)
             * $luasEfektif
             * $safetyFactor;
 
-        // Rekomendasi talang
+        // Rekomendasi dimensi
         if ($debitAir < 1.5) {
             $dimensiRekomendasi =
                 "Talang Setengah Lingkaran 15 cm / Kotak 12 cm";
@@ -147,28 +172,33 @@ class TalangController extends Controller
                 "Talang Kotak Kustom >25 cm / Industrial";
         }
 
-        // Kebutuhan pipa
+        // Pipa turunan
         $debitPerPipa =
-            $debitAir / max(1, $jumlah_pipa);
+            $debitAir /
+            max(1, $jumlah_pipa);
 
-        $rekomendasiPipa = $jumlah_pipa;
+        $rekomendasiPipa =
+            $jumlah_pipa;
 
         if ($debitPerPipa > 2.0) {
             $rekomendasiPipa =
-                ceil($debitAir / 2.0);
+                (int) ceil($debitAir / 2.0);
         }
 
         // BoQ
         $wasteFactor = 1.05;
 
         $panjangTalang =
-            round($panjang * $wasteFactor, 1);
+            round(
+                $panjang * $wasteFactor,
+                1
+            );
 
         $jumlahBracket =
-            ceil($panjang / 0.6);
+            (int) ceil($panjang / 0.6);
 
         $jumlahJoint =
-            ceil($panjang / 3.0);
+            (int) ceil($panjang / 3.0);
 
         $jumlahCorong =
             $rekomendasiPipa;
@@ -208,7 +238,10 @@ class TalangController extends Controller
         $sisaPercobaan = $isGuest
             ? max(
                 0,
-                3 - session('sistem_pakar_count', 1)
+                3 - session(
+                    'sistem_pakar_count',
+                    1
+                )
             )
             : null;
 
@@ -217,34 +250,70 @@ class TalangController extends Controller
             'lebar' => $lebar,
             'kemiringan' => $kemiringan,
             'jenis_bangunan' => $jenis_bangunan,
-            'luas_efektif' => round($luasEfektif, 2),
+
+            'luas_efektif' => round(
+                $luasEfektif,
+                2
+            ),
+
             'curah_hujan' => $hujan,
             'material' => $material,
-            'debit_air' => round($debitAir, 2),
-            'dimensi_talang' => $dimensiRekomendasi,
-            'rekomendasi_pipa' => $rekomendasiPipa,
+
+            'debit_air' => round(
+                $debitAir,
+                2
+            ),
+
+            'dimensi_talang' =>
+                $dimensiRekomendasi,
+
+            'rekomendasi_pipa' =>
+                $rekomendasiPipa,
 
             'boq' => [
-                'panjang_talang' => $panjangTalang,
-                'bracket' => $jumlahBracket,
-                'joint' => $jumlahJoint,
-                'corong' => $jumlahCorong,
-                'endcap' => $jumlahEndCap,
+                'panjang_talang' =>
+                    $panjangTalang,
+
+                'bracket' =>
+                    $jumlahBracket,
+
+                'joint' =>
+                    $jumlahJoint,
+
+                'corong' =>
+                    $jumlahCorong,
+
+                'endcap' =>
+                    $jumlahEndCap,
             ],
 
-            'biaya' => $biaya,
-            'tingkat_resiko' => $tingkatResiko,
-            'confidence' => $confidence,
-            'sisa_percobaan' => $sisaPercobaan,
+            'biaya' =>
+                $biaya,
+
+            'tingkat_resiko' =>
+                $tingkatResiko,
+
+            'confidence' =>
+                $confidence,
+
+            'sisa_percobaan' =>
+                $sisaPercobaan,
         ];
 
         $data = $this->getKatalogData();
 
         return view(
             'welcome',
-            compact('data', 'hasil')
+            compact(
+                'data',
+                'hasil'
+            )
         );
     }
+
+    // ===========================================================
+    // ESTIMASI BIAYA
+    // ===========================================================
 
     private function estimasiBiaya(
         string $material,
@@ -254,12 +323,22 @@ class TalangController extends Controller
         int $corong,
         int $endcap
     ): array {
+
         $hargaPerMeter = match (true) {
-            str_contains($material, 'Baja') => 180000,
-            str_contains($material, 'PVC') => 85000,
-            str_contains($material, 'Galvalum') => 145000,
-            str_contains($material, 'Bitumen') => 220000,
-            default => 120000,
+            str_contains($material, 'Baja') =>
+                180000,
+
+            str_contains($material, 'PVC') =>
+                85000,
+
+            str_contains($material, 'Galvalum') =>
+                145000,
+
+            str_contains($material, 'Bitumen') =>
+                220000,
+
+            default =>
+                120000,
         };
 
         $hargaBracket = 15000;
@@ -268,7 +347,8 @@ class TalangController extends Controller
         $hargaEndCap = 20000;
 
         $biayaTalang =
-            $hargaPerMeter * $panjangTalang;
+            $hargaPerMeter *
+            $panjangTalang;
 
         $biayaAksesoris =
             ($bracket * $hargaBracket)
@@ -277,12 +357,19 @@ class TalangController extends Controller
             + ($endcap * $hargaEndCap);
 
         $biayaPasang =
-            50000 * $panjangTalang;
+            50000 *
+            $panjangTalang;
 
         return [
-            'material_utama' => $biayaTalang,
-            'aksesoris' => $biayaAksesoris,
-            'pasang' => $biayaPasang,
+            'material_utama' =>
+                $biayaTalang,
+
+            'aksesoris' =>
+                $biayaAksesoris,
+
+            'pasang' =>
+                $biayaPasang,
+
             'total' =>
                 $biayaTalang
                 + $biayaAksesoris
@@ -290,129 +377,234 @@ class TalangController extends Controller
         ];
     }
 
-    // ===========================================================
-    // AUTENTIKASI
-    // ===========================================================
+// ===========================================================
+// AUTENTIKASI
+// ===========================================================
 
-    public function showLogin()
-    {
-        return view('login');
+public function showLogin()
+{
+    return view('login');
+}
+
+public function prosesLogin(Request $request)
+{
+    $request->validate([
+        'email' => 'required|email',
+        'password' => 'required|min:3',
+    ], [
+        'email.required' => 'Email wajib diisi.',
+        'email.email' => 'Format email tidak valid.',
+        'password.required' => 'Password wajib diisi.',
+        'password.min' => 'Password minimal 3 karakter.',
+    ]);
+
+    $user = User::where('email', $request->email)->first();
+
+    if (!$user) {
+        return back()
+            ->withInput($request->only('email'))
+            ->withErrors([
+                'login' => 'Email atau password salah!',
+            ]);
     }
 
-    public function prosesLogin(Request $request)
-    {
-        $request->validate([
-            'email' => 'required|email',
-            'password' => 'required|min:3',
-        ]);
+    $guard = match ($user->role) {
+        'admin' => 'admin',
+        'pembeli' => 'pembeli',
+        default => null,
+    };
 
-        $user = User::where(
-            'email',
-            $request->email
-        )->first();
-
-        if (
-            !$user ||
-            !Auth::attempt([
-                'email' => $request->email,
-                'password' => $request->password,
-            ])
-        ) {
-            return back()
-                ->withInput()
-                ->withErrors([
-                    'login' => 'Email atau password salah!'
-                ]);
-        }
-
-        $request->session()->regenerate();
-
-        $user = Auth::user();
-
-        Log::info('Login success', [
-            'email' => $user->email,
-            'role' => $user->role,
-            'redirect' =>
-                $user->role === 'admin'
-                    ? 'dashboard.admin'
-                    : 'dashboard.pembeli',
-            'auth_check' => Auth::check(),
-            'session_id' => session()->getId(),
-        ]);
-
-        return match ($user->role) {
-            'admin' =>
-                redirect()->route('dashboard.admin'),
-
-            default =>
-                redirect()->route('dashboard.pembeli'),
-        };
+    if (!$guard) {
+        return back()
+            ->withInput($request->only('email'))
+            ->withErrors([
+                'login' => 'Role akun tidak valid.',
+            ]);
     }
 
-    public function showRegister()
-    {
-        return view('register');
+    $credentials = [
+        'email' => $request->email,
+        'password' => $request->password,
+    ];
+
+    if (!Auth::guard($guard)->attempt($credentials)) {
+        return back()
+            ->withInput($request->only('email'))
+            ->withErrors([
+                'login' => 'Email atau password salah!',
+            ]);
     }
 
-    public function prosesRegister(Request $request)
-    {
-        $request->validate([
-            'nama' => 'required|min:3',
-            'email' => 'required|email|unique:users,email',
-            'password' => 'required|min:6|confirmed',
-            'role' => 'required|in:pembeli',
-        ]);
+    // Login juga ke guard web/default agar kode lama yang memakai
+    // Auth::check(), Auth::user(), dan Auth::id() tetap bekerja.
+    Auth::login($user);
 
-        $user = User::create([
-            'name' => $request->nama,
-            'email' => $request->email,
-            'password' => bcrypt($request->password),
-            'role' => $request->role,
-            'kota' => 'Indonesia',
-        ]);
+    // Regenerasi session setelah login untuk keamanan dan agar
+    // session checkout yang sebelumnya tersimpan tetap dipertahankan.
+    $request->session()->regenerate();
 
-        Auth::login($user);
+    Log::info('Login success', [
+        'email' => $user->email,
+        'role' => $user->role,
+        'guard' => $guard,
+        'auth_check' => Auth::check(),
+        'role_guard_check' => Auth::guard($guard)->check(),
+        'session_id' => $request->session()->getId(),
+    ]);
 
-        try {
-            Mail::to($user->email)
-                ->send(
-                    new WelcomeEmail(
-                        $user->name,
-                        route('login')
-                    )
-                );
-        } catch (\Exception $e) {
-            Log::error(
-                'Gagal mengirim email selamat datang: '
-                . $e->getMessage()
-            );
-        }
-
+    if ($user->role === 'admin') {
         return redirect()
-            ->route('dashboard.pembeli')
-            ->with(
-                'sukses',
-                'Selamat datang ' . $user->name . '!'
-            );
+            ->intended(route('dashboard.admin'))
+            ->with('sukses', 'Selamat datang Admin!');
     }
 
-    public function logout(Request $request)
-    {
-        Auth::logout();
+    return redirect()
+        ->intended(route('dashboard.pembeli'))
+        ->with('sukses', 'Selamat datang ' . $user->name . '!');
+}
 
-        $request->session()->invalidate();
-        $request->session()->regenerateToken();
+public function showRegister()
+{
+    return view('register');
+}
 
+public function prosesRegister(Request $request)
+{
+    $request->validate([
+        'nama' => 'required|min:3',
+
+        'email' => 'required|email|unique:users,email',
+
+        'password' => 'required|min:6|confirmed',
+
+        'role' => 'required|in:pembeli',
+    ]);
+
+    $user = User::create([
+        'name' => $request->nama,
+
+        'email' => $request->email,
+
+        'password' => bcrypt($request->password),
+
+        'role' => $request->role,
+
+        'kota' => 'Indonesia',
+    ]);
+
+    Auth::guard('pembeli')->login($user);
+    Auth::login($user);
+
+    $request->session()->regenerate();
+
+    try {
+        Mail::to($user->email)->send(
+            new WelcomeEmail(
+                $user->name,
+                route('login')
+            )
+        );
+    } catch (\Exception $e) {
+        Log::error(
+            'Gagal mengirim email selamat datang: '
+            . $e->getMessage()
+        );
+    }
+
+    return redirect()
+        ->route('dashboard.pembeli')
+        ->with(
+            'sukses',
+            'Selamat datang '
+            . $user->name
+            . '!'
+        );
+}
+
+public function logout(Request $request)
+{
+    /*
+    |--------------------------------------------------------------------------
+    | Tentukan siapa yang sedang logout
+    |--------------------------------------------------------------------------
+    */
+
+    $isAdmin = Auth::guard('admin')->check();
+    $isPembeli = Auth::guard('pembeli')->check();
+
+    /*
+    |--------------------------------------------------------------------------
+    | Logout berdasarkan guard
+    |--------------------------------------------------------------------------
+    */
+
+    Auth::guard('admin')->logout();
+    Auth::guard('pembeli')->logout();
+    Auth::logout();
+
+    /*
+    |--------------------------------------------------------------------------
+    | Hapus session autentikasi
+    |--------------------------------------------------------------------------
+    */
+
+    $request->session()->invalidate();
+    $request->session()->regenerateToken();
+
+    /*
+    |--------------------------------------------------------------------------
+    | Pesan logout
+    |--------------------------------------------------------------------------
+    */
+
+    if ($isAdmin) {
         return redirect()
             ->route('landing')
             ->with(
                 'sukses',
-                'Anda berhasil keluar.'
+                'Anda berhasil keluar dari panel admin.'
             );
     }
 
+    if ($isPembeli) {
+        return redirect()
+            ->route('landing')
+            ->with(
+                'sukses',
+                'Anda berhasil keluar dari akun pelanggan.'
+            );
+    }
+
+    return redirect()
+        ->route('landing')
+        ->with(
+            'sukses',
+            'Anda berhasil keluar.'
+        );
+}
+/**
+ * Logout khusus Admin
+ */
+public function adminLogout(Request $request)
+{
+    Auth::guard('admin')->logout();
+    Auth::guard('pembeli')->logout();
+    Auth::logout();
+
+    $request->session()->invalidate();
+
+    $request->session()->regenerateToken();
+
+    return redirect()
+        ->route('landing')
+        ->with(
+            'sukses',
+            'Anda berhasil keluar dari dashboard admin.'
+        );
+}
+
     // ===========================================================
-    // DASHBOARD
+    // DASHBOARD PEMBELI
     // ===========================================================
 
     public function dashboardPembeli()
@@ -424,20 +616,35 @@ class TalangController extends Controller
             403
         );
 
-        $data = $this->dashboardStats('pembeli');
-        $cartSummary = $this->getCartSummary();
+        $data =
+            $this->dashboardStats(
+                'pembeli'
+            );
+
+        $cartSummary =
+            $this->getCartSummary();
 
         return view(
             'dashboards.pembeli',
             array_merge(
                 $data,
                 [
-                    'user' => $user,
-                    'cartItems' => $cartSummary['items'],
+                    'user' =>
+                        $user,
+
+                    'cartItems' =>
+                        $cartSummary['items'],
+
+                    'cartDiscount' =>
+                        $cartSummary['discount'],
                 ]
             )
         );
     }
+
+    // ===========================================================
+    // PROFILE
+    // ===========================================================
 
     public function updateProfile(Request $request)
     {
@@ -453,7 +660,8 @@ class TalangController extends Controller
                 'required|min:3',
 
             'email' =>
-                'required|email|unique:users,email,' . $user->id,
+                'required|email|unique:users,email,'
+                . $user->id,
 
             'telepon' =>
                 'required|min:8',
@@ -466,11 +674,20 @@ class TalangController extends Controller
         ]);
 
         $user->update([
-            'name' => $request->name,
-            'email' => $request->email,
-            'telepon' => $request->telepon,
-            'kota' => $request->kota,
-            'alamat' => $request->alamat,
+            'name' =>
+                $request->name,
+
+            'email' =>
+                $request->email,
+
+            'telepon' =>
+                $request->telepon,
+
+            'kota' =>
+                $request->kota,
+
+            'alamat' =>
+                $request->alamat,
         ]);
 
         return redirect()
@@ -481,9 +698,13 @@ class TalangController extends Controller
             );
     }
 
+    // ===========================================================
+    // DASHBOARD ADMIN
+    // ===========================================================
+
     public function dashboardAdmin()
     {
-        $user = Auth::user();
+        $user = Auth::guard('admin')->user();
 
         abort_if(
             $user->role !== 'admin',
@@ -494,8 +715,9 @@ class TalangController extends Controller
             Product::orderBy('id')->get();
 
         $orders =
-            Order::orderByDesc('created_at')
-                ->paginate(15);
+            Order::orderByDesc(
+                'created_at'
+            )->paginate(15);
 
         $stats = [
             'total_orders' =>
@@ -525,157 +747,158 @@ class TalangController extends Controller
         );
     }
 
-    // ===========================================================
-    // ADMIN PRODUCT MANAGEMENT
-    // ===========================================================
+ // ===========================================================
+// ADMIN PRODUCT
+// ===========================================================
 
-    public function adminProducts()
-    {
-        $user = Auth::user();
+public function adminProducts()
+{
+    $user = Auth::guard('admin')->user();
 
-        abort_if(
-            $user->role !== 'admin',
-            403
-        );
+    abort_if(
+        !$user || $user->role !== 'admin',
+        403
+    );
 
-        $products =
-            Product::orderBy('id')->get();
+    $products = Product::orderBy('id')->get();
 
-        return view(
-            'dashboards.admin_products',
-            compact(
+    return view(
+        'dashboards.admin_products',
+        compact(
+            'products',
+            'user'
+        )
+    );
+}
+
+public function adminCreateProduct()
+{
+    $user = Auth::guard('admin')->user();
+
+    abort_if(
+        !$user || $user->role !== 'admin',
+        403
+    );
+
+    return view(
+        'dashboards.admin_product_form',
+        [
+            'user' => $user,
+            'product' => null,
+        ]
+    );
+}
+
+public function adminEditProduct(
+    Product $product
+) {
+    $user = Auth::guard('admin')->user();
+
+    abort_if(
+        !$user || $user->role !== 'admin',
+        403
+    );
+
+    return view(
+        'dashboards.admin_product_form',
+        compact(
+            'product',
+            'user'
+        )
+    );
+}
+
+public function adminSaveProduct(
+    Request $request,
+    ?Product $product = null
+) {
+    $user = Auth::guard('admin')->user();
+
+    abort_if(
+        !$user || $user->role !== 'admin',
+        403
+    );
+
+    $request->validate([
+        'nama' =>
+            'required|string|max:255',
+
+        'harga' =>
+            'required|integer|min:0',
+
+        'rating' =>
+            'required|numeric|min:0|max:5',
+
+        'kategori_id' =>
+            'required|integer|min:1|max:5',
+
+        'material' =>
+            'required|string|max:100',
+
+        'stok' =>
+            'required|integer|min:0',
+
+        'seller' =>
+            'required|string|max:255',
+
+        'promo' =>
+            'nullable|string|max:255',
+
+        'best' =>
+            'nullable|boolean',
+
+        'image' =>
+            'nullable|image|max:2048',
+    ]);
+
+    $data = $request->only([
+        'nama',
+        'harga',
+        'rating',
+        'kategori_id',
+        'material',
+        'stok',
+        'seller',
+        'promo',
+    ]);
+
+    /*
+    |--------------------------------------------------------------------------
+    | BEST PRODUCT
+    |--------------------------------------------------------------------------
+    */
+
+    $data['best'] = $request->has('best');
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | IMAGE
+    |--------------------------------------------------------------------------
+    */
+
+    if ($request->hasFile('image')) {
+
+        $path = $request
+            ->file('image')
+            ->store(
                 'products',
-                'user'
-            )
-        );
+                'public'
+            );
+
+        $data['image'] = $path;
     }
 
-    public function adminCreateProduct()
-    {
-        $user = Auth::user();
 
-        abort_if(
-            $user->role !== 'admin',
-            403
-        );
+    /*
+    |--------------------------------------------------------------------------
+    | UPDATE PRODUCT
+    |--------------------------------------------------------------------------
+    */
 
-        return view(
-            'dashboards.admin_product_form',
-            [
-                'user' => $user
-            ]
-        );
-    }
+    if ($product) {
 
-    public function adminEditProduct(Product $product)
-    {
-        $user = Auth::user();
-
-        abort_if(
-            $user->role !== 'admin',
-            403
-        );
-
-        return view(
-            'dashboards.admin_product_form',
-            compact(
-                'product',
-                'user'
-            )
-        );
-    }
-
-    public function adminSaveProduct(
-        Request $request,
-        ?Product $product = null
-    ) {
-        $user = Auth::user();
-
-        abort_if(
-            $user->role !== 'admin',
-            403
-        );
-
-        $request->validate([
-            'nama' =>
-                'required|string|max:255',
-
-            'harga' =>
-                'required|integer|min:0',
-
-            'rating' =>
-                'required|numeric|min:0|max:5',
-
-            'kategori_id' =>
-                'required|integer|min:1|max:5',
-
-            'material' =>
-                'required|string|max:100',
-
-            'stok' =>
-                'required|integer|min:0',
-
-            'seller' =>
-                'required|string|max:255',
-
-            'promo' =>
-                'nullable|string|max:255',
-
-            'best' =>
-                'nullable|boolean',
-
-            'image' =>
-                'nullable|image|max:2048',
-        ]);
-
-        $data = $request->only([
-            'nama',
-            'harga',
-            'rating',
-            'kategori_id',
-            'material',
-            'stok',
-            'seller',
-            'promo',
-        ]);
-
-        $data['best'] =
-            $request->has('best');
-
-        if ($request->hasFile('image')) {
-            $path =
-                $request
-                    ->file('image')
-                    ->store(
-                        'products',
-                        'public'
-                    );
-
-            $data['image'] = $path;
-
-        } elseif (
-            $product &&
-            $request->filled('image')
-        ) {
-            $data['image'] =
-                $product->image;
-        }
-
-        if ($product) {
-
-            $product->update($data);
-
-            return redirect()
-                ->route(
-                    'admin.products.index'
-                )
-                ->with(
-                    'sukses',
-                    'Produk berhasil diperbarui.'
-                );
-        }
-
-        Product::create($data);
+        $product->update($data);
 
         return redirect()
             ->route(
@@ -683,154 +906,273 @@ class TalangController extends Controller
             )
             ->with(
                 'sukses',
-                'Produk berhasil ditambahkan.'
+                'Produk berhasil diperbarui.'
             );
     }
 
-    public function adminDeleteProduct(
-        Product $product
-    ) {
-        $user = Auth::user();
 
-        abort_if(
-            $user->role !== 'admin',
-            403
+    /*
+    |--------------------------------------------------------------------------
+    | CREATE PRODUCT
+    |--------------------------------------------------------------------------
+    */
+
+    Product::create($data);
+
+    return redirect()
+        ->route(
+            'admin.products.index'
+        )
+        ->with(
+            'sukses',
+            'Produk berhasil ditambahkan.'
         );
+}
 
-        $product->delete();
 
-        return back()
+public function adminDeleteProduct(
+    Product $product
+) {
+    $user = Auth::guard('admin')->user();
+
+    abort_if(
+        !$user || $user->role !== 'admin',
+        403
+    );
+
+    $product->delete();
+
+    return back()
+        ->with(
+            'sukses',
+            'Produk berhasil dihapus.'
+        );
+}
+// ===========================================================
+// ADMIN INVOICE
+// ===========================================================
+
+public function adminInvoices()
+{
+    $user = Auth::guard('admin')->user();
+
+    abort_if(
+        !$user || $user->role !== 'admin',
+        403
+    );
+
+    $orders =
+        Order::orderByDesc(
+            'created_at'
+        )->paginate(20);
+
+    return view(
+        'dashboards.admin_invoices',
+        compact(
+            'orders',
+            'user'
+        )
+    );
+}
+
+public function adminInvoiceDetail(
+    Order $order
+) {
+    $user = Auth::guard('admin')->user();
+
+    abort_if(
+        !$user || $user->role !== 'admin',
+        403
+    );
+
+    return view(
+        'dashboards.admin_invoice_detail',
+        compact(
+            'order',
+            'user'
+        )
+    );
+}
+
+// ===========================================================
+// ADMIN - HAPUS SEMUA INVOICE
+// ===========================================================
+
+public function adminDeleteAllInvoices()
+{
+    $user = Auth::guard('admin')->user();
+
+    abort_if(
+        !$user || $user->role !== 'admin',
+        403
+    );
+
+    try {
+
+        $totalOrders = Order::count();
+
+        DB::transaction(function () {
+
+            // Hapus semua item pesanan terlebih dahulu
+            OrderItem::query()->delete();
+
+            // Kemudian hapus seluruh pesanan/invoice
+            Order::query()->delete();
+        });
+
+        return redirect()
+            ->route('admin.invoices.index')
             ->with(
                 'sukses',
-                'Produk berhasil dihapus.'
+                "Berhasil menghapus {$totalOrders} invoice dan seluruh data pesanan."
+            );
+
+    } catch (\Throwable $e) {
+
+        Log::error(
+            'Gagal menghapus seluruh invoice dan data pesanan.',
+            [
+                'error' => $e->getMessage(),
+            ]
+        );
+
+        return redirect()
+            ->route('admin.invoices.index')
+            ->with(
+                'error',
+                'Gagal menghapus invoice dan data pesanan: ' . $e->getMessage()
             );
     }
+}
 
     // ===========================================================
-    // ADMIN INVOICE MANAGEMENT
+    // DASHBOARD STATS
     // ===========================================================
-
-    public function adminInvoices()
-    {
-        $user = Auth::user();
-
-        abort_if(
-            $user->role !== 'admin',
-            403
-        );
-
-        $orders =
-            Order::orderByDesc('created_at')
-                ->paginate(20);
-
-        return view(
-            'dashboards.admin_invoices',
-            compact(
-                'orders',
-                'user'
-            )
-        );
-    }
-
-    public function adminInvoiceDetail(
-        Order $order
-    ) {
-        $user = Auth::user();
-
-        abort_if(
-            $user->role !== 'admin',
-            403
-        );
-
-        return view(
-            'dashboards.admin_invoice_detail',
-            compact(
-                'order',
-                'user'
-            )
-        );
-    }
 
     private function dashboardStats(
         string $role
     ): array {
+
         if ($role === 'admin') {
+
             return [
                 'stats' => [
                     [
-                        'label' => 'Total Order',
-                        'value' => Order::count(),
-                        'icon' => '📦',
-                        'color' => 'orange',
-                        'desc' => 'Seluruh pesanan'
+                        'label' =>
+                            'Total Order',
+
+                        'value' =>
+                            Order::count(),
+
+                        'icon' =>
+                            '📦',
+
+                        'color' =>
+                            'orange',
+
+                        'desc' =>
+                            'Seluruh pesanan',
                     ],
+
                     [
-                        'label' => 'Revenue Bulan Ini',
+                        'label' =>
+                            'Revenue Bulan Ini',
+
                         'value' =>
                             'Rp '
                             . number_format(
-                                Order::sum('grand_total'),
+                                Order::sum(
+                                    'grand_total'
+                                ),
                                 0,
                                 ',',
                                 '.'
                             ),
-                        'icon' => '💰',
-                        'color' => 'emerald',
-                        'desc' => 'Total penjualan'
+
+                        'icon' =>
+                            '💰',
+
+                        'color' =>
+                            'emerald',
+
+                        'desc' =>
+                            'Total penjualan',
                     ],
+
                     [
-                        'label' => 'Total Produk',
-                        'value' => Product::count(),
-                        'icon' => '📊',
-                        'color' => 'blue',
-                        'desc' => 'Katalog aktif'
+                        'label' =>
+                            'Total Produk',
+
+                        'value' =>
+                            Product::count(),
+
+                        'icon' =>
+                            '📊',
+
+                        'color' =>
+                            'blue',
+
+                        'desc' =>
+                            'Katalog aktif',
                     ],
+
                     [
-                        'label' => 'Pembeli',
+                        'label' =>
+                            'Pembeli',
+
                         'value' =>
                             User::where(
                                 'role',
                                 'pembeli'
                             )->count(),
-                        'icon' => '👥',
-                        'color' => 'purple',
-                        'desc' => 'Pengguna terdaftar'
+
+                        'icon' =>
+                            '👥',
+
+                        'color' =>
+                            'purple',
+
+                        'desc' =>
+                            'Pengguna terdaftar',
                     ],
                 ],
             ];
         }
 
-        $userId = Auth::id();
+        $userId =
+            Auth::id();
 
         $activeOrders =
             Order::where(
                 'user_id',
                 $userId
             )
-                ->whereNotIn(
-                    'status',
-                    [
-                        'selesai',
-                        'dibatalkan'
-                    ]
-                )
-                ->count();
+            ->whereNotIn(
+                'status',
+                [
+                    'selesai',
+                    'dibatalkan'
+                ]
+            )
+            ->count();
 
         $totalPengeluaran =
             Order::where(
                 'user_id',
                 $userId
             )
-                ->whereNotIn(
-                    'status',
-                    ['dibatalkan']
-                )
-                ->sum('grand_total');
+            ->whereNotIn(
+                'status',
+                [
+                    'dibatalkan'
+                ]
+            )
+            ->sum(
+                'grand_total'
+            );
 
         $favoriteProduct =
-            \Illuminate\Support\Facades\DB::table(
-                'order_items'
-            )
+            DB::table('order_items')
                 ->join(
                     'orders',
                     'orders.id',
@@ -843,7 +1185,7 @@ class TalangController extends Controller
                 )
                 ->select(
                     'product_name',
-                    \Illuminate\Support\Facades\DB::raw(
+                    DB::raw(
                         'SUM(quantity) as total_qty'
                     )
                 )
@@ -857,7 +1199,7 @@ class TalangController extends Controller
 
         $favoriteProductName =
             $favoriteProduct
-                ? \Illuminate\Support\Str::limit(
+                ? Str::limit(
                     $favoriteProduct->product_name,
                     15
                 )
@@ -883,53 +1225,72 @@ class TalangController extends Controller
 
         $formattedOrders =
             $recentOrdersRaw
-                ->map(function ($order) {
+                ->map(
+                    function ($order) {
 
-                    $itemsSummary =
-                        $order->items
-                            ->pluck('product_name')
-                            ->implode(', ');
+                        $itemsSummary =
+                            $order
+                                ->items
+                                ->pluck(
+                                    'product_name'
+                                )
+                                ->implode(', ');
 
-                    return [
-                        'id' =>
-                            $order->order_id,
+                        return [
+                            'id' =>
+                                $order->order_id,
 
-                        'item' =>
-                            \Illuminate\Support\Str::limit(
-                                $itemsSummary,
-                                40
-                            ),
+                            'item' =>
+                                Str::limit(
+                                    $itemsSummary,
+                                    40
+                                ),
 
-                        'status' =>
-                            $order->status,
+                            'status' =>
+                                $order->status,
 
-                        'snap_token' =>
-                            $order->snap_token,
+                            'snap_token' =>
+                                $order->snap_token,
 
-                        'total' =>
-                            'Rp '
-                            . number_format(
-                                $order->grand_total,
-                                0,
-                                ',',
-                                '.'
-                            ),
-                    ];
-                })
+                            'total' =>
+                                'Rp '
+                                . number_format(
+                                    $order->grand_total,
+                                    0,
+                                    ',',
+                                    '.'
+                                ),
+                        ];
+                    }
+                )
                 ->toArray();
 
         return [
             'stats' => [
                 [
-                    'label' => 'Pesanan Aktif',
-                    'value' => $activeOrders,
-                    'icon' => '📦',
-                    'color' => 'blue',
-                    'desc_class' => 'text-blue-500',
-                    'desc' => 'Sedang diproses/dikirim'
+                    'label' =>
+                        'Pesanan Aktif',
+
+                    'value' =>
+                        $activeOrders,
+
+                    'icon' =>
+                        '📦',
+
+                    'color' =>
+                        'blue',
+
+                    'desc_class' =>
+                        'text-blue-500',
+
+                    'desc' =>
+                        'Sedang diproses/dikirim',
                 ],
+
                 [
-                    'label' => 'Total Pengeluaran',
+                    'label' =>
+                        'Total Pengeluaran',
+
                     'value' =>
                         'Rp '
                         . number_format(
@@ -938,35 +1299,68 @@ class TalangController extends Controller
                             ',',
                             '.'
                         ),
-                    'icon' => '💰',
-                    'color' => 'emerald',
-                    'desc_class' => 'text-slate-500',
-                    'desc' => 'Sepanjang waktu'
+
+                    'icon' =>
+                        '💰',
+
+                    'color' =>
+                        'emerald',
+
+                    'desc_class' =>
+                        'text-slate-500',
+
+                    'desc' =>
+                        'Sepanjang waktu',
                 ],
+
                 [
-                    'label' => 'Material Favorit',
-                    'value' => $favoriteProductName,
-                    'icon' => '⭐',
-                    'color' => 'orange',
-                    'desc_class' => 'text-slate-500',
-                    'desc' => $favoriteProductCount
+                    'label' =>
+                        'Material Favorit',
+
+                    'value' =>
+                        $favoriteProductName,
+
+                    'icon' =>
+                        '⭐',
+
+                    'color' =>
+                        'orange',
+
+                    'desc_class' =>
+                        'text-slate-500',
+
+                    'desc' =>
+                        $favoriteProductCount,
                 ],
+
                 [
-                    'label' => 'Toko Favorit',
-                    'value' => '3 Toko',
-                    'icon' => '🤝',
-                    'color' => 'purple',
-                    'desc_class' => 'text-orange-500',
-                    'desc' => 'Mitra terbaik'
+                    'label' =>
+                        'Toko Favorit',
+
+                    'value' =>
+                        '3 Toko',
+
+                    'icon' =>
+                        '🤝',
+
+                    'color' =>
+                        'purple',
+
+                    'desc_class' =>
+                        'text-orange-500',
+
+                    'desc' =>
+                        'Mitra terbaik',
                 ],
             ],
 
-            'orders' => $formattedOrders,
+            'orders' =>
+                $formattedOrders,
         ];
     }
 
     // ===========================================================
-    // KERANJANG & CHECKOUT
+    // KERANJANG
     // ===========================================================
 
     private function getCart(): array
@@ -989,22 +1383,141 @@ class TalangController extends Controller
     private function findProduct(
         int $productId
     ): ?array {
+
         return Product::find(
             $productId
         )?->toArray();
     }
 
+    // ===========================================================
+    // DISCOUNT CALCULATOR
+    // ===========================================================
+
+    private function calculateDiscount(
+        array $items,
+        int|float $subtotal
+    ): array {
+
+        $discount = 0;
+
+        $discountDetails = [];
+
+        $freeShipping = false;
+
+        foreach ($items as $item) {
+
+            $product =
+                Product::find(
+                    $item['id']
+                );
+
+            if (!$product) {
+                continue;
+            }
+
+            $promo =
+                strtolower(
+                    trim(
+                        (string) (
+                            $product->promo ?? ''
+                        )
+                    )
+                );
+
+            $itemSubtotal =
+                (float) $item['subtotal'];
+
+            // =================================================
+            // DISKON PERSENTASE
+            // =================================================
+
+            if (preg_match('/diskon\s*(\d+(?:[.,]\d+)?)\s*%?/i', $promo, $matches)) {
+                $percentage = (float) str_replace(',', '.', $matches[1]);
+                $percentage = min(100, max(0, $percentage));
+
+                $itemDiscount =
+                    $itemSubtotal * ($percentage / 100);
+
+                $discount +=
+                    $itemDiscount;
+
+                $discountDetails[] = [
+                    'product_id' =>
+                        $product->id,
+
+                    'product_name' =>
+                        $product->nama,
+
+                    'type' =>
+                        'percentage',
+
+                    'percentage' =>
+                        $percentage,
+
+                    'amount' =>
+                        round(
+                            $itemDiscount
+                        ),
+
+                    'label' =>
+                        'Diskon ' . rtrim(rtrim(number_format($percentage, 2, '.', ''), '0'), '.') . '%',
+                ];
+            }
+
+            // =================================================
+            // GRATIS ONGKIR
+            // =================================================
+
+            if (
+                str_contains(
+                    $promo,
+                    'gratis ongkir'
+                )
+            ) {
+                $freeShipping = true;
+            }
+        }
+
+        // Jangan sampai discount melebihi subtotal
+        $discount =
+            min(
+                $discount,
+                $subtotal
+            );
+
+        return [
+            'discount' =>
+                (int) round(
+                    $discount
+                ),
+
+            'discountDetails' =>
+                $discountDetails,
+
+            'freeShipping' =>
+                $freeShipping,
+        ];
+    }
+
+    // ===========================================================
+    // CART SUMMARY
+    // ===========================================================
+
     private function getCartSummary(): array
     {
-        $cart = $this->getCart();
+        $cart =
+            $this->getCart();
 
         $items = [];
+
         $subtotal = 0;
+
         $totalItems = 0;
 
         foreach (
             $cart as $productId => $item
         ) {
+
             $product =
                 $this->findProduct(
                     (int) $productId
@@ -1022,29 +1535,129 @@ class TalangController extends Controller
                     )
                 );
 
-            $lineTotal =
-                $product['harga']
-                * $quantity;
+            $stok =
+                (int) (
+                    $product['stok'] ?? 0
+                );
 
-            $subtotal += $lineTotal;
-            $totalItems += $quantity;
+            // Sesuaikan quantity dengan stok
+            $quantity =
+                min(
+                    $quantity,
+                    max(
+                        0,
+                        $stok
+                    )
+                );
+
+            if ($quantity <= 0) {
+                continue;
+            }
+
+            $harga =
+                (float) (
+                    $product['harga'] ?? 0
+                );
+
+            $lineTotal =
+                $harga *
+                $quantity;
+
+            $subtotal +=
+                $lineTotal;
+
+            $totalItems +=
+                $quantity;
 
             $items[] = [
-                'id' => $product['id'],
-                'nama' => $product['nama'],
-                'harga' => $product['harga'],
-                'quantity' => $quantity,
-                'stok' => $product['stok'],
-                'subtotal' => $lineTotal,
+                'id' =>
+                    $product['id'],
+
+                'nama' =>
+                    $product['nama'],
+
+                'harga' =>
+                    $harga,
+
+                'quantity' =>
+                    $quantity,
+
+                'stok' =>
+                    $stok,
+
+                'promo' =>
+                    $product['promo'] ?? null,
+
+                'subtotal' =>
+                    $lineTotal,
             ];
         }
 
+        // =======================================================
+        // HITUNG DISCOUNT
+        // =======================================================
+
+        $discountData =
+            $this->calculateDiscount(
+                $items,
+                $subtotal
+            );
+
+        $discount =
+            (int) $discountData['discount'];
+
+        // =======================================================
+        // TOTAL SETELAH DISCOUNT
+        // =======================================================
+
+        $discountedSubtotal =
+            max(
+                0,
+                $subtotal - $discount
+            );
+
         return [
-            'items' => $items,
-            'subtotal' => $subtotal,
-            'totalItems' => $totalItems,
+            // Produk
+            'items' =>
+                $items,
+
+            // Harga sebelum discount
+            'subtotal' =>
+                (int) round(
+                    $subtotal
+                ),
+
+            // Discount
+            'discount' =>
+                $discount,
+
+            // Detail discount
+            'discountDetails' =>
+                $discountData[
+                    'discountDetails'
+                ],
+
+            // Gratis ongkir
+            'freeShipping' =>
+                $discountData[
+                    'freeShipping'
+                ],
+
+            // Jumlah item
+            'totalItems' =>
+                $totalItems,
+
+            // Harga setelah discount
+            'discountedSubtotal' =>
+                (int) round(
+                    $discountedSubtotal
+                ),
         ];
     }
+
+    // ===========================================================
+    // CART INDEX
+    // ===========================================================
 
     public function cartIndex()
     {
@@ -1060,11 +1673,38 @@ class TalangController extends Controller
                 'total' =>
                     $summary['subtotal'],
 
+                'subtotal' =>
+                    $summary['subtotal'],
+
+                'discount' =>
+                    $summary['discount'],
+
+                'discountDetails' =>
+                    $summary[
+                        'discountDetails'
+                    ],
+
+                'discountedSubtotal' =>
+                    $summary[
+                        'discountedSubtotal'
+                    ],
+
+                'freeShipping' =>
+                    $summary[
+                        'freeShipping'
+                    ],
+
                 'totalItems' =>
-                    $summary['totalItems'],
+                    $summary[
+                        'totalItems'
+                    ],
             ]
         );
     }
+
+    // ===========================================================
+    // CHECKOUT INDEX
+    // ===========================================================
 
     public function checkoutIndex()
     {
@@ -1075,7 +1715,9 @@ class TalangController extends Controller
             $summary['totalItems'] === 0
         ) {
             return redirect()
-                ->route('cart.index')
+                ->route(
+                    'cart.index'
+                )
                 ->with(
                     'sukses',
                     'Keranjang Anda masih kosong.'
@@ -1085,7 +1727,32 @@ class TalangController extends Controller
         return view(
             'checkout',
             [
-                'summary' => $summary,
+                'summary' =>
+                    $summary,
+
+                'cartItems' =>
+                    $summary['items'],
+
+                'subtotal' =>
+                    $summary['subtotal'],
+
+                'discount' =>
+                    $summary['discount'],
+
+                'discountDetails' =>
+                    $summary[
+                        'discountDetails'
+                    ],
+
+                'discountedSubtotal' =>
+                    $summary[
+                        'discountedSubtotal'
+                    ],
+
+                'freeShipping' =>
+                    $summary[
+                        'freeShipping'
+                    ],
 
                 'userName' =>
                     Auth::check()
@@ -1100,46 +1767,58 @@ class TalangController extends Controller
         );
     }
 
+    // ===========================================================
+    // PROCESS CHECKOUT
+    // ===========================================================
+
     public function processCheckout(
         Request $request
     ) {
-        $request->validate([
-            'nama' =>
-                'required|min:3',
 
-            'email' =>
-                'required|email',
+        $request->validate(
+            [
+                'nama' =>
+                    'required|min:3',
 
-            'telepon' =>
-                'required|min:8',
+                'email' =>
+                    'required|email',
 
-            'alamat' =>
-                'required|min:5',
-        ], [
-            'nama.required' =>
-                'Nama lengkap wajib diisi.',
+                'telepon' =>
+                    'required|min:8',
 
-            'nama.min' =>
-                'Nama lengkap minimal 3 karakter.',
+                'alamat' =>
+                    'required|min:5',
+            ],
+            [
+                'nama.required' =>
+                    'Nama lengkap wajib diisi.',
 
-            'email.required' =>
-                'Email wajib diisi.',
+                'nama.min' =>
+                    'Nama lengkap minimal 3 karakter.',
 
-            'email.email' =>
-                'Format email tidak valid.',
+                'email.required' =>
+                    'Email wajib diisi.',
 
-            'telepon.required' =>
-                'Nomor telepon wajib diisi.',
+                'email.email' =>
+                    'Format email tidak valid.',
 
-            'telepon.min' =>
-                'Nomor telepon minimal 8 karakter.',
+                'telepon.required' =>
+                    'Nomor telepon wajib diisi.',
 
-            'alamat.required' =>
-                'Alamat pengiriman wajib diisi.',
+                'telepon.min' =>
+                    'Nomor telepon minimal 8 karakter.',
 
-            'alamat.min' =>
-                'Alamat pengiriman minimal 5 karakter.',
-        ]);
+                'alamat.required' =>
+                    'Alamat pengiriman wajib diisi.',
+
+                'alamat.min' =>
+                    'Alamat pengiriman minimal 5 karakter.',
+            ]
+        );
+
+        // =======================================================
+        // CART
+        // =======================================================
 
         $summary =
             $this->getCartSummary();
@@ -1148,27 +1827,34 @@ class TalangController extends Controller
             $summary['totalItems'] === 0
         ) {
             return redirect()
-                ->route('cart.index')
+                ->route(
+                    'cart.index'
+                )
                 ->with(
                     'sukses',
                     'Keranjang Anda masih kosong.'
                 );
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | DATA ORDER
-        |--------------------------------------------------------------------------
-        */
+        // =======================================================
+        // HARGA
+        // =======================================================
 
-        $orderId =
-            'TRX-'
-            . strtoupper(
-                substr(
-                    uniqid('', true),
-                    -6
-                )
+        $subtotal =
+            (int) $summary['subtotal'];
+
+        $discount =
+            (int) $summary['discount'];
+
+        $discountedSubtotal =
+            max(
+                0,
+                $subtotal - $discount
             );
+
+        // =======================================================
+        // SHIPPING
+        // =======================================================
 
         $shippingProvider =
             $request->shipping_provider
@@ -1183,199 +1869,171 @@ class TalangController extends Controller
                 );
 
         $shippingFee =
-            $shippingResult['fee'];
+            (int) (
+                $shippingResult['fee']
+                ?? 0
+            );
+
+        // =======================================================
+        // GRATIS ONGKIR
+        // =======================================================
+
+        if (
+            $summary['freeShipping']
+        ) {
+            $shippingFee = 0;
+        }
+
+        // =======================================================
+        // GRAND TOTAL
+        // =======================================================
 
         $grandTotal =
-            $summary['subtotal']
+            $discountedSubtotal
             + $shippingFee;
 
-        /*
-        |--------------------------------------------------------------------------
-        | NORMALISASI METODE PEMBAYARAN
-        |--------------------------------------------------------------------------
-        */
+        $grandTotal =
+            max(
+                0,
+                $grandTotal
+            );
+
+        // =======================================================
+        // ORDER ID
+        // =======================================================
+
+        $orderId =
+            'TRX-'
+            . strtoupper(
+                substr(
+                    uniqid(
+                        '',
+                        true
+                    ),
+                    -6
+                )
+            );
+
+        // =======================================================
+        // METODE PEMBAYARAN
+        // =======================================================
 
         $metode =
             $request->metode_pembayaran
-            ?? 'va';
+            ?? 'xendit';
 
-        if (
-            in_array(
-                strtolower($metode),
+        // =======================================================
+        // CREATE ORDER
+        // =======================================================
+
+        $order =
+            Order::create(
                 [
-                    'bca',
-                    'bca_va',
-                    'virtual_account',
-                    'virtual-account',
-                    'va',
-                ],
-                true
-            )
-        ) {
-            $metode = 'va';
-        }
+                    'user_id' =>
+                        Auth::id(),
 
-        /*
-        |--------------------------------------------------------------------------
-        | BUAT ORDER
-        |--------------------------------------------------------------------------
-        */
+                    'order_id' =>
+                        $orderId,
 
-        $order = Order::create([
-            'user_id' =>
-                Auth::id(),
+                    'customer_name' =>
+                        $request->nama,
 
-            'order_id' =>
-                $orderId,
+                    'customer_email' =>
+                        $request->email,
 
-            'customer_name' =>
-                $request->nama,
+                    'telepon' =>
+                        $request->telepon,
 
-            'customer_email' =>
-                $request->email,
+                    'alamat' =>
+                        $request->alamat,
 
-            'telepon' =>
-                $request->telepon,
+                    'payment_method' =>
+                        $metode,
 
-            'alamat' =>
-                $request->alamat,
+                    // Harga sebelum discount
+                    'subtotal' =>
+                        $subtotal,
 
-            'payment_method' =>
-                $metode,
+                    // Discount
+                    'discount' =>
+                        $discount,
 
-            'subtotal' =>
-                $summary['subtotal'],
+                    // Ongkir setelah promo
+                    'shipping_fee' =>
+                        $shippingFee,
 
-            'shipping_fee' =>
-                $shippingFee,
+                    // Total akhir
+                    'grand_total' =>
+                        $grandTotal,
 
-            'grand_total' =>
-                $grandTotal,
+                    'status' =>
+                        'menunggu_pembayaran',
 
-            'status' =>
-                'menunggu_pembayaran',
+                    'courier' =>
+                        $shippingResult[
+                            'provider'
+                        ]
+                        ?? (
+                            $shippingResult[
+                                'courier'
+                            ]
+                            ?? 'Belum ditentukan'
+                        ),
 
-            'courier' =>
-                $shippingResult['provider']
-                ?? (
-                    $shippingResult['courier']
-                    ?? 'Belum ditentukan'
-                ),
+                    'tracking_code' =>
+                        null,
+                ]
+            );
 
-            'tracking_code' =>
-                null,
-        ]);
-
-        /*
-        |--------------------------------------------------------------------------
-        | SIMPAN ORDER ITEMS
-        |--------------------------------------------------------------------------
-        */
+        // =======================================================
+        // ORDER ITEMS
+        // =======================================================
 
         foreach (
-            $summary['items'] as $item
+            $summary['items']
+            as $item
         ) {
-            $order->items()->create([
-                'product_id' =>
-                    $item['id'],
 
-                'product_name' =>
-                    $item['nama'],
+            $order->items()->create(
+                [
+                    'product_id' =>
+                        $item['id'],
 
-                'quantity' =>
-                    $item['quantity'],
+                    'product_name' =>
+                        $item['nama'],
 
-                'price' =>
-                    $item['harga'],
+                    'quantity' =>
+                        $item['quantity'],
 
-                'subtotal' =>
-                    $item['subtotal'],
-            ]);
+                    'price' =>
+                        $item['harga'],
+
+                    'subtotal' =>
+                        $item['subtotal'],
+                ]
+            );
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | SIMPAN ORDER KE SESSION
-        |--------------------------------------------------------------------------
-        */
+        // =======================================================
+        // SIMPAN PENDING ORDER
+        // =======================================================
 
         Session::put(
             'pending_order',
-            $order->toArray()
+            $order
+                ->fresh()
+                ->toArray()
         );
 
-        /*
-        |--------------------------------------------------------------------------
-        | BCA VIRTUAL ACCOUNT SIMULASI
-        |--------------------------------------------------------------------------
-        |
-        | Xendit sudah dihapus.
-        | VA sekarang dibuat secara lokal melalui PaymentService.
-        |
-        */
-
-        if ($metode === 'va') {
-
-            try {
-
-                $this->paymentService
-                    ->createBcaVirtualAccount(
-                        $order
-                    );
-
-                $order->refresh();
-
-                Session::put(
-                    'pending_order',
-                    $order->toArray()
-                );
-
-                Session::forget('cart');
-
-                return redirect()
-                    ->route(
-                        'orders.show',
-                        $order->order_id
-                    )
-                    ->with(
-                        'sukses',
-                        'Pesanan berhasil dibuat. Silakan lakukan pembayaran menggunakan Virtual Account.'
-                    );
-
-            } catch (\Exception $e) {
-
-                Log::error(
-                    'BCA Virtual Account Error',
-                    [
-                        'order_id' =>
-                            $order->order_id,
-
-                        'message' =>
-                            $e->getMessage(),
-                    ]
-                );
-
-                return redirect()
-                    ->route(
-                        'orders.show',
-                        $order->order_id
-                    )
-                    ->with(
-                        'error',
-                        'Pesanan berhasil dibuat, tetapi Virtual Account gagal dibuat.'
-                    );
-            }
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | TRANSFER BANK MANUAL
-        |--------------------------------------------------------------------------
-        */
+        // =======================================================
+        // BANK TRANSFER
+        // =======================================================
 
         if ($metode === 'bank') {
 
-            Session::forget('cart');
+            Session::forget(
+                'cart'
+            );
 
             return redirect()
                 ->route(
@@ -1384,31 +2042,103 @@ class TalangController extends Controller
                 )
                 ->with(
                     'sukses',
-                    'Pesanan berhasil dibuat. Silakan lakukan pembayaran sesuai informasi transfer.'
+                    'Pesanan berhasil dibuat! Silakan lakukan transfer bank ke BCA 1234567890 a.n. AtapIndonesia.'
                 );
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | METODE PEMBAYARAN LAIN
-        |--------------------------------------------------------------------------
-        |
-        | Tidak ada lagi pemrosesan Xendit.
-        |
-        */
+        // =======================================================
+        // PAYMENT BELUM TERKONFIGURASI
+        // =======================================================
 
-        Session::forget('cart');
+        if (
+            !$this->paymentService
+                ->isConfigured()
+        ) {
 
-        return redirect()
-            ->route(
-                'orders.show',
-                $order->order_id
-            )
-            ->with(
-                'sukses',
-                'Pesanan berhasil dibuat. Silakan lakukan pembayaran.'
+            Session::forget(
+                'cart'
             );
+
+            return redirect()
+                ->route(
+                    'orders.show',
+                    $order->order_id
+                )
+                ->with(
+                    'sukses',
+                    'Pesanan berhasil dibuat! Pembayaran via transfer bank ke BCA 1234567890 a.n. AtapIndonesia.'
+                );
+        }
+
+        // =======================================================
+        // PAYMENT
+        // =======================================================
+
+        try {
+
+            $invoiceUrl =
+                $this->paymentService
+                    ->createInvoice(
+                        $order,
+                        $metode
+                    );
+
+            $order->snap_token =
+                $invoiceUrl;
+
+            $order->save();
+
+            Session::forget(
+                'cart'
+            );
+
+            return redirect()
+                ->away(
+                    $invoiceUrl
+                );
+
+        } catch (\Exception $e) {
+
+            Log::error(
+                'Payment Error: '
+                . $e->getMessage(),
+                [
+                    'order_id' =>
+                        $order->order_id,
+
+                    'subtotal' =>
+                        $subtotal,
+
+                    'discount' =>
+                        $discount,
+
+                    'shipping_fee' =>
+                        $shippingFee,
+
+                    'grand_total' =>
+                        $grandTotal,
+                ]
+            );
+
+            Session::forget(
+                'cart'
+            );
+
+            return redirect()
+                ->route(
+                    'orders.show',
+                    $order->order_id
+                )
+                ->with(
+                    'sukses',
+                    'Pesanan berhasil dibuat! Pembayaran via transfer bank ke BCA 1234567890 a.n. AtapIndonesia.'
+                );
+        }
     }
+
+    // ===========================================================
+    // PAYMENT PAGE
+    // ===========================================================
 
     public function paymentPage()
     {
@@ -1419,7 +2149,9 @@ class TalangController extends Controller
 
         if (!$orderFromSession) {
             return redirect()
-                ->route('cart.index')
+                ->route(
+                    'cart.index'
+                )
                 ->with(
                     'sukses',
                     'Belum ada pesanan yang bisa dibayar.'
@@ -1429,16 +2161,39 @@ class TalangController extends Controller
         $order =
             Order::where(
                 'order_id',
-                $orderFromSession['order_id']
+                $orderFromSession[
+                    'order_id'
+                ]
             )->firstOrFail();
+
+        $user = $this->currentUser();
+
+        if (!$user) {
+            abort(403);
+        }
+
+        if (
+            $user->role !== 'admin'
+            && (int) $order->user_id !== (int) $user->id
+        ) {
+            abort(403);
+        }
 
         return view(
             'payment',
             [
-                'order' => $order,
+                'order' =>
+                    $order,
+
+                'invoiceUrl' =>
+                    $order->snap_token,
             ]
         );
     }
+
+    // ===========================================================
+    // SHIPPING PAGE
+    // ===========================================================
 
     public function shippingPage()
     {
@@ -1449,7 +2204,9 @@ class TalangController extends Controller
 
         if (!$orderFromSession) {
             return redirect()
-                ->route('cart.index')
+                ->route(
+                    'cart.index'
+                )
                 ->with(
                     'sukses',
                     'Belum ada pesanan yang bisa dilacak.'
@@ -1459,14 +2216,30 @@ class TalangController extends Controller
         $order =
             Order::where(
                 'order_id',
-                $orderFromSession['order_id']
+                $orderFromSession[
+                    'order_id'
+                ]
             )->firstOrFail();
+
+        $user = $this->currentUser();
+
+        if (!$user) {
+            abort(403);
+        }
+
+        if (
+            $user->role !== 'admin'
+            && (int) $order->user_id !== (int) $user->id
+        ) {
+            abort(403);
+        }
 
         $statusKey =
             $order->status;
 
         $shippingStatus =
             match ($statusKey) {
+
                 'dibayar' =>
                     'Pesanan Dibayar',
 
@@ -1525,9 +2298,14 @@ class TalangController extends Controller
         );
     }
 
+    // ===========================================================
+    // SHOW ORDER
+    // ===========================================================
+
     public function showOrder(
         $order_id
     ) {
+
         $order =
             Order::with('items')
                 ->where(
@@ -1538,108 +2316,123 @@ class TalangController extends Controller
 
         return view(
             'orders.show',
-            compact('order')
+            compact(
+                'order'
+            )
         );
     }
 
     // ===========================================================
-    // KERANJANG ACTIONS
+    // ADD TO CART
     // ===========================================================
 
     public function addToCart(
         Request $request
     ) {
-        $request->validate([
-            'product_id' =>
-                'required|integer',
+        try {
+            $request->validate([
+                'product_id' => 'required|integer',
+                'quantity' => 'nullable|integer|min:1',
+            ]);
 
-            'quantity' =>
-                'nullable|integer|min:1',
-        ]);
+            $productId = (int) $request->product_id;
 
-        $productId =
-            (int) $request->product_id;
+            $product = $this->findProduct($productId);
 
-        $product =
-            $this->findProduct(
-                $productId
-            );
+            if (!$product) {
+                return response()->json([
+                    'success' => false,
+                    'status' => 'error',
+                    'message' => 'Produk tidak ditemukan.',
+                ], 404);
+            }
 
-        if (!$product) {
-            return redirect()
-                ->back()
-                ->with(
-                    'sukses',
-                    'Produk tidak ditemukan.'
-                );
-        }
+            $stock = (int) ($product['stok'] ?? 0);
 
-        $quantity =
-            max(
-                1,
-                (int) (
-                    $request->quantity ?? 1
-                )
-            );
+            if ($stock <= 0) {
+                return response()->json([
+                    'success' => false,
+                    'status' => 'error',
+                    'message' => 'Stok produk sedang habis.',
+                ], 422);
+            }
 
-        $cart =
-            $this->getCart();
+            $quantity = max(1, (int) ($request->quantity ?? 1));
 
-        $existingQty =
-            isset($cart[$productId])
-                ? (int) $cart[$productId]['quantity']
+            $cart = $this->getCart();
+
+            $existingQty = isset($cart[$productId])
+                ? (int) ($cart[$productId]['quantity'] ?? 0)
                 : 0;
 
-        $newQty =
-            min(
-                $product['stok'],
-                $existingQty + $quantity
-            );
+            $requestedQty = $existingQty + $quantity;
 
-        $cart[$productId] = [
-            'product_id' =>
-                $productId,
+            if ($requestedQty > $stock) {
+                return response()->json([
+                    'success' => false,
+                    'status' => 'error',
+                    'message' => "Jumlah melebihi stok tersedia. Stok {$stock} item.",
+                    'stock' => $stock,
+                    'cart_count' => $this->getCartSummary()['totalItems'] ?? 0,
+                ], 422);
+            }
 
-            'quantity' =>
-                $newQty,
-        ];
+            $cart[$productId] = [
+                'product_id' => $productId,
+                'quantity' => $requestedQty,
+            ];
 
-        $this->saveCart($cart);
+            $this->saveCart($cart);
 
-        $cartSummary =
-            $this->getCartSummary();
+            $cartSummary = $this->getCartSummary();
+            $cartCount = (int) ($cartSummary['totalItems'] ?? 0);
 
-        $cartCount =
-            $cartSummary['totalItems'];
-
-        if (
-            $request->ajax()
-            || $request->wantsJson()
-        ) {
             return response()->json([
                 'success' => true,
                 'status' => 'success',
-                'message' =>
-                    $product['nama']
+                'message' => ($product['nama'] ?? 'Produk')
                     . ' berhasil ditambahkan ke keranjang.',
-                'cart_count' =>
-                    $cartCount,
-                'totalItems' =>
-                    $cartSummary['totalItems'],
-            ]);
-        }
+                'cart_count' => $cartCount,
+                'totalItems' => $cartCount,
+                'subtotal' => $cartSummary['subtotal'] ?? 0,
+                'discount' => $cartSummary['discount'] ?? 0,
+                'discountedSubtotal' => $cartSummary['discountedSubtotal'] ?? 0,
+                'freeShipping' => $cartSummary['freeShipping'] ?? false,
+            ], 200);
 
-        return back()
-            ->with(
-                'sukses',
-                $product['nama']
-                . ' berhasil ditambahkan ke keranjang.'
-            );
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'status' => 'error',
+                'message' => $e->validator->errors()->first(),
+                'errors' => $e->errors(),
+            ], 422);
+
+        } catch (\Throwable $e) {
+            Log::error('Add to cart error', [
+                'product_id' => $request->input('product_id'),
+                'quantity' => $request->input('quantity'),
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'status' => 'error',
+                'message' => 'Terjadi kesalahan saat menambahkan produk ke keranjang.',
+            ], 500);
+        }
     }
+
+    // ===========================================================
+    // BUY NOW
+    // ===========================================================
 
     public function buyNow(
         Request $request
     ) {
+
         $request->validate([
             'product_id' =>
                 'required|integer',
@@ -1657,6 +2450,7 @@ class TalangController extends Controller
             );
 
         if (!$product) {
+
             return redirect()
                 ->back()
                 ->with(
@@ -1671,6 +2465,7 @@ class TalangController extends Controller
             );
 
         if ($stok <= 0) {
+
             return redirect()
                 ->back()
                 ->with(
@@ -1693,15 +2488,17 @@ class TalangController extends Controller
                 $quantity
             );
 
-        $this->saveCart([
-            $productId => [
-                'product_id' =>
-                    $productId,
+        $this->saveCart(
+            [
+                $productId => [
+                    'product_id' =>
+                        $productId,
 
-                'quantity' =>
-                    $quantity,
-            ],
-        ]);
+                    'quantity' =>
+                        $quantity,
+                ],
+            ]
+        );
 
         return redirect()
             ->route(
@@ -1709,9 +2506,14 @@ class TalangController extends Controller
             );
     }
 
+    // ===========================================================
+    // UPDATE CART
+    // ===========================================================
+
     public function updateCart(
         Request $request
     ) {
+
         $request->validate([
             'product_id' =>
                 'required|integer',
@@ -1732,8 +2534,11 @@ class TalangController extends Controller
             );
 
         if (!$product) {
+
             return redirect()
-                ->route('cart.index')
+                ->route(
+                    'cart.index'
+                )
                 ->with(
                     'sukses',
                     'Produk tidak tersedia.'
@@ -1744,10 +2549,15 @@ class TalangController extends Controller
             $this->getCart();
 
         if (
-            !isset($cart[$productId])
+            !isset(
+                $cart[$productId]
+            )
         ) {
+
             return redirect()
-                ->route('cart.index')
+                ->route(
+                    'cart.index'
+                )
                 ->with(
                     'sukses',
                     'Item tidak ada di keranjang.'
@@ -1758,8 +2568,9 @@ class TalangController extends Controller
             max(
                 1,
                 (int) (
-                    $cart[$productId]['quantity']
-                    ?? 1
+                    $cart[$productId][
+                        'quantity'
+                    ] ?? 1
                 )
             );
 
@@ -1769,46 +2580,62 @@ class TalangController extends Controller
             );
 
         if (
-            $request->has('quantity')
+            $request->has(
+                'quantity'
+            )
         ) {
+
             $quantity =
                 max(
                     1,
                     (int) $request->quantity
                 );
+
         } else {
+
             $quantity =
-                $currentQuantity + $delta;
+                $currentQuantity
+                + $delta;
         }
 
         $quantity =
             max(
                 1,
                 min(
-                    $product['stok'],
+                    (int) $product['stok'],
                     $quantity
                 )
             );
 
-        $cart[$productId]['quantity'] =
-            $quantity;
+        $cart[$productId][
+            'quantity'
+        ] = $quantity;
 
-        $this->saveCart($cart);
+        $this->saveCart(
+            $cart
+        );
 
         return redirect()
-            ->route('cart.index')
+            ->route(
+                'cart.index'
+            )
             ->with(
                 'sukses',
                 'Jumlah keranjang diperbarui.'
             );
     }
 
+    // ===========================================================
+    // REMOVE CART
+    // ===========================================================
+
     public function removeCart(
         Request $request
     ) {
+
         $request->validate([
             'product_id' =>
-                'required|integer'
+                'required|integer',
         ]);
 
         $productId =
@@ -1818,29 +2645,44 @@ class TalangController extends Controller
             $this->getCart();
 
         if (
-            isset($cart[$productId])
+            isset(
+                $cart[$productId]
+            )
         ) {
+
             unset(
                 $cart[$productId]
             );
 
-            $this->saveCart($cart);
+            $this->saveCart(
+                $cart
+            );
         }
 
         return redirect()
-            ->route('cart.index')
+            ->route(
+                'cart.index'
+            )
             ->with(
                 'sukses',
                 'Item dihapus dari keranjang.'
             );
     }
 
+    // ===========================================================
+    // CLEAR CART
+    // ===========================================================
+
     public function clearCart()
     {
-        Session::forget('cart');
+        Session::forget(
+            'cart'
+        );
 
         return redirect()
-            ->route('cart.index')
+            ->route(
+                'cart.index'
+            )
             ->with(
                 'sukses',
                 'Keranjang dibersihkan.'
@@ -1848,7 +2690,7 @@ class TalangController extends Controller
     }
 
     // ===========================================================
-    // DATA KATALOG TERPUSAT
+    // DATA KATALOG
     // ===========================================================
 
     private function getKatalogData(): array
@@ -1859,40 +2701,236 @@ class TalangController extends Controller
                 'nama' => 'Sepatu Safety Boot',
                 'slug' => 'sepatu-safety-boot',
                 'icon' => '🥾',
-                'count' => 0
+                'count' => 0,
             ],
+
             [
                 'id' => 2,
                 'nama' => 'Pipa PVC',
                 'slug' => 'pipa-pvc',
                 'icon' => '🚰',
-                'count' => 0
+                'count' => 0,
             ],
+
             [
                 'id' => 3,
                 'nama' => 'Atap',
                 'slug' => 'atap',
                 'icon' => '🏠',
-                'count' => 0
+                'count' => 0,
             ],
+
             [
                 'id' => 4,
                 'nama' => 'Karpet Talang',
                 'slug' => 'karpet-talang',
                 'icon' => '📜',
-                'count' => 0
+                'count' => 0,
             ],
+
             [
                 'id' => 5,
                 'nama' => 'Selang',
                 'slug' => 'selang',
                 'icon' => '💦',
-                'count' => 0
+                'count' => 0,
             ],
         ];
 
+        // ===========================================================
+        // AMBIL SEMUA PRODUK
+        // ===========================================================
+
         $produk =
-            Product::all()->toArray();
+            Product::orderBy('id')
+                ->get()
+                ->map(
+                    function (
+                        Product $product
+                    ) {
+
+                        $data =
+                            $product->toArray();
+
+                        $nama =
+                            strtolower(
+                                trim(
+                                    (string)
+                                    $product->nama
+                                )
+                            );
+
+                        // =================================================
+                        // IMAGE PRODUK
+                        // =================================================
+
+                        $data['image'] =
+                            match (true) {
+
+                                // Karpet
+                                str_contains(
+                                    $nama,
+                                    'karpet'
+                                ) =>
+                                    'products/karpet_talang.jpg',
+
+                                // =================================================
+                                // SEMUA PRODUK PIPA
+                                // =================================================
+                                //
+                                // Contoh:
+                                // Pipa PVC AW 1/2
+                                // Pipa PVC AW 3/4
+                                // Pipa PVC AW 1
+                                // Pipa PVC D 2
+                                // Pipa PVC D 3
+                                // Pipa PVC D 4
+                                //
+                                // Semua akan menggunakan:
+                                // products/pipa_pvc.jpg
+                                //
+                                str_contains(
+                                    $nama,
+                                    'pipa'
+                                ) =>
+                                    'products/pipa_pvc.jpg',
+
+                                // Selang
+                                str_contains(
+                                    $nama,
+                                    'selang'
+                                ) =>
+                                    'products/selang_air.jpg',
+
+                                // Sepatu Safety
+                                str_contains(
+                                    $nama,
+                                    'sepatu'
+                                )
+                                ||
+                                str_contains(
+                                    $nama,
+                                    'safety boot'
+                                ) =>
+                                    'products/sepatu_safety.jpg',
+
+                                // Produk Atap / Talang
+                                str_contains(
+                                    $nama,
+                                    'talang'
+                                ),
+                                str_contains(
+                                    $nama,
+                                    'galvanis'
+                                ),
+                                str_contains(
+                                    $nama,
+                                    'galvalum'
+                                ),
+                                str_contains(
+                                    $nama,
+                                    'spandek'
+                                ),
+                                str_contains(
+                                    $nama,
+                                    'bitumen'
+                                ),
+                                str_contains(
+                                    $nama,
+                                    'atap'
+                                ) =>
+                                    'products/atap_galvalum.jpg',
+
+                                // Jika tidak ada mapping,
+                                // gunakan gambar dari database
+                                default =>
+                                    $product->image,
+                            };
+
+                        // =================================================
+                        // DESCRIPTION PRODUK
+                        // =================================================
+
+                        $data['deskripsi'] =
+                            match (true) {
+
+                                // Talang Galvanis 6
+                                str_contains(
+                                    $nama,
+                                    'talang galvanis 6'
+                                ) =>
+                                    'Talang galvanis ukuran 6 inci untuk membantu menyalurkan air hujan dari area atap.',
+
+                                // Talang Galvanis 8
+                                str_contains(
+                                    $nama,
+                                    'talang galvanis 8'
+                                ) =>
+                                    'Talang galvanis ukuran 8 inci dengan konstruksi heavy duty untuk kebutuhan penyaluran air hujan.',
+
+                                // Karpet PVC
+                                str_contains(
+                                    $nama,
+                                    'karpet pvc'
+                                ) =>
+                                    'Karpet PVC roll sepanjang 50 meter untuk kebutuhan pelapis dan perlindungan pada area talang.',
+
+                                // Spandek Bitumen
+                                str_contains(
+                                    $nama,
+                                    'spandek bitumen'
+                                ) =>
+                                    'Spandek bitumen ukuran 1 x 5 meter untuk kebutuhan material penutup atap.',
+
+                                // Talang Galvalum
+                                str_contains(
+                                    $nama,
+                                    'talang galvalum'
+                                ) =>
+                                    'Talang galvalum premium ukuran 6 inci untuk membantu menyalurkan air hujan dari atap.',
+
+                                // =================================================
+                                // SEMUA PRODUK PIPA
+                                // =================================================
+                                str_contains(
+                                    $nama,
+                                    'pipa'
+                                ) =>
+                                    'Pipa PVC berkualitas untuk kebutuhan saluran air, pembuangan, dan berbagai instalasi perpipaan.',
+
+                                // Selang
+                                str_contains(
+                                    $nama,
+                                    'selang'
+                                ) =>
+                                    'Selang air untuk kebutuhan pengaliran air di rumah maupun area kerja.',
+
+                                // Sepatu
+                                str_contains(
+                                    $nama,
+                                    'sepatu'
+                                )
+                                ||
+                                str_contains(
+                                    $nama,
+                                    'safety boot'
+                                ) =>
+                                    'Sepatu safety boot untuk perlindungan kaki saat bekerja di lingkungan konstruksi.',
+
+                                // Default
+                                default =>
+                                    'Material untuk kebutuhan konstruksi atap dan talang.',
+                            };
+
+                        return $data;
+                    }
+                )
+                ->values()
+                ->toArray();
+
+        // ===========================================================
+        // HITUNG JUMLAH PRODUK PER KATEGORI
+        // ===========================================================
 
         $counts =
             array_count_values(
@@ -1905,23 +2943,40 @@ class TalangController extends Controller
         foreach (
             $kategori as &$item
         ) {
+
             $item['count'] =
-                $counts[$item['id']] ?? 0;
+                $counts[
+                    $item['id']
+                ] ?? 0;
         }
 
+        unset($item);
+
+        // ===========================================================
+        // RETURN DATA
+        // ===========================================================
+
         return [
-            'kategori' => $kategori,
-            'produk' => $produk,
+            'kategori' =>
+                $kategori,
+
+            // Dipertahankan untuk kompatibilitas view katalog.blade.php
+            'produk' =>
+                $produk,
+
+            // Alias untuk view/controller lain yang menggunakan products
+            'products' =>
+                $produk,
         ];
     }
 
     // ===========================================================
-    // ADMIN ORDER MANAGEMENT
+    // ADMIN ORDER
     // ===========================================================
 
     public function adminOrderList()
     {
-        $user = Auth::user();
+        $user = Auth::guard('admin')->user();
 
         abort_if(
             $user->role !== 'admin',
@@ -1945,7 +3000,7 @@ class TalangController extends Controller
     public function adminOrderDetail(
         Order $order
     ) {
-        $user = Auth::user();
+        $user = Auth::guard('admin')->user();
 
         abort_if(
             $user->role !== 'admin',
@@ -1965,7 +3020,8 @@ class TalangController extends Controller
         Request $request,
         Order $order
     ) {
-        $user = Auth::user();
+
+        $user = Auth::guard('admin')->user();
 
         abort_if(
             $user->role !== 'admin',
@@ -1983,7 +3039,7 @@ class TalangController extends Controller
                 'required|in:menunggu_pembayaran,dibayar,dikemas,dikirim,selesai,dibatalkan',
 
             'payment_method' =>
-                'nullable|string|in:qris,bank,va',
+                'nullable|string|in:xendit,qris,bank',
         ]);
 
         $order->update([
@@ -2009,12 +3065,51 @@ class TalangController extends Controller
     }
 
     // ===========================================================
-    // ADMIN CUSTOMER MANAGEMENT
+    // ADMIN CONFIRM PAYMENT
+    // ===========================================================
+
+    public function adminConfirmPayment(Order $order)
+    {
+        $user = Auth::guard('admin')->user();
+
+        abort_if(
+            !$user || $user->role !== 'admin',
+            403
+        );
+
+        // Jangan konfirmasi ulang pesanan yang sudah dibayar.
+        if ($order->status === 'dibayar') {
+            return back()->with(
+                'sukses',
+                'Pembayaran pesanan ' . $order->order_id . ' sudah dikonfirmasi sebelumnya.'
+            );
+        }
+
+        // Pesanan yang dibatalkan tidak boleh dikonfirmasi.
+        if ($order->status === 'dibatalkan') {
+            return back()->with(
+                'error',
+                'Pesanan yang sudah dibatalkan tidak dapat dikonfirmasi pembayarannya.'
+            );
+        }
+
+        $order->update([
+            'status' => 'dibayar',
+        ]);
+
+        return back()->with(
+            'sukses',
+            'Pembayaran pesanan ' . $order->order_id . ' berhasil dikonfirmasi.'
+        );
+    }
+
+    // ===========================================================
+    // ADMIN CUSTOMERS
     // ===========================================================
 
     public function adminCustomers()
     {
-        $user = Auth::user();
+        $user = Auth::guard('admin')->user();
 
         abort_if(
             $user->role !== 'admin',
@@ -2026,11 +3121,11 @@ class TalangController extends Controller
                 'role',
                 'pembeli'
             )
-                ->orderBy(
-                    'created_at',
-                    'desc'
-                )
-                ->paginate(20);
+            ->orderBy(
+                'created_at',
+                'desc'
+            )
+            ->paginate(20);
 
         return view(
             'dashboards.admin_customers',
@@ -2044,7 +3139,9 @@ class TalangController extends Controller
     public function adminCustomerDetail(
         User $user
     ) {
-        $admin = Auth::user();
+
+        $admin =
+            Auth::guard('admin')->user();
 
         abort_if(
             $admin->role !== 'admin',
@@ -2056,10 +3153,10 @@ class TalangController extends Controller
                 'customer_email',
                 $user->email
             )
-                ->orderByDesc(
-                    'created_at'
-                )
-                ->get();
+            ->orderByDesc(
+                'created_at'
+            )
+            ->get();
 
         return view(
             'dashboards.admin_customer_detail',
@@ -2074,7 +3171,9 @@ class TalangController extends Controller
     public function adminCustomerEdit(
         User $user
     ) {
-        $admin = Auth::user();
+
+        $admin =
+            Auth::guard('admin')->user();
 
         abort_if(
             $admin->role !== 'admin',
@@ -2094,7 +3193,9 @@ class TalangController extends Controller
         Request $request,
         User $user
     ) {
-        $admin = Auth::user();
+
+        $admin =
+            Auth::guard('admin')->user();
 
         abort_if(
             $admin->role !== 'admin',
@@ -2149,7 +3250,9 @@ class TalangController extends Controller
     public function adminCustomerDestroy(
         User $user
     ) {
-        $admin = Auth::user();
+
+        $admin =
+            Auth::guard('admin')->user();
 
         abort_if(
             $admin->role !== 'admin',
@@ -2169,7 +3272,7 @@ class TalangController extends Controller
     }
 
     // ===========================================================
-    // TICKETING SYSTEM
+    // TICKETING
     // ===========================================================
 
     public function showTickets()
@@ -2188,21 +3291,23 @@ class TalangController extends Controller
                     'user_email'
                 );
 
-        if ($userRole === 'admin') {
+        if (
+            $userRole === 'admin'
+        ) {
 
             $tickets =
                 Ticket::withCount(
                     'replies'
                 )
-                    ->orderBy(
-                        'status',
-                        'asc'
-                    )
-                    ->orderBy(
-                        'updated_at',
-                        'desc'
-                    )
-                    ->get();
+                ->orderBy(
+                    'status',
+                    'asc'
+                )
+                ->orderBy(
+                    'updated_at',
+                    'desc'
+                )
+                ->get();
 
         } else {
 
@@ -2211,22 +3316,25 @@ class TalangController extends Controller
                     'user_email',
                     $userEmail
                 )
-                    ->orderBy(
-                        'updated_at',
-                        'desc'
-                    )
-                    ->get();
+                ->orderBy(
+                    'updated_at',
+                    'desc'
+                )
+                ->get();
         }
 
         return view(
             'dashboards.tickets.index',
-            compact('tickets')
+            compact(
+                'tickets'
+            )
         );
     }
 
     public function showTicketDetail(
         Ticket $ticket
     ) {
+
         $userEmail =
             Auth::check()
                 ? Auth::user()->email
@@ -2243,8 +3351,11 @@ class TalangController extends Controller
 
         if (
             $userRole !== 'admin'
-            && $userEmail !== $ticket->user_email
+            &&
+            $userEmail !==
+                $ticket->user_email
         ) {
+
             abort(
                 403,
                 'Akses Ditolak'
@@ -2253,13 +3364,16 @@ class TalangController extends Controller
 
         return view(
             'dashboards.tickets.show',
-            compact('ticket')
+            compact(
+                'ticket'
+            )
         );
     }
 
     public function storeTicket(
         Request $request
     ) {
+
         $request->validate([
             'subject' =>
                 'required|string|max:255',
@@ -2303,7 +3417,9 @@ class TalangController extends Controller
         ]);
 
         return redirect()
-            ->route('tickets.index')
+            ->route(
+                'tickets.index'
+            )
             ->with(
                 'sukses',
                 'Pengaduan Anda telah dikirim. Admin akan segera merespon.'
@@ -2314,9 +3430,10 @@ class TalangController extends Controller
         Request $request,
         Ticket $ticket
     ) {
+
         $request->validate([
             'message' =>
-                'required|string|min:5'
+                'required|string|min:5',
         ]);
 
         $user =
@@ -2350,12 +3467,17 @@ class TalangController extends Controller
         if (
             $replierRole === 'admin'
         ) {
+
             $ticket->update([
-                'status' => 'answered'
+                'status' =>
+                    'answered'
             ]);
+
         } else {
+
             $ticket->update([
-                'status' => 'open'
+                'status' =>
+                    'open'
             ]);
         }
 
@@ -2373,6 +3495,7 @@ class TalangController extends Controller
     public function closeTicket(
         Ticket $ticket
     ) {
+
         $userRole =
             Auth::check()
                 ? Auth::user()->role
@@ -2386,11 +3509,14 @@ class TalangController extends Controller
         );
 
         $ticket->update([
-            'status' => 'closed'
+            'status' =>
+                'closed'
         ]);
 
         return redirect()
-            ->route('tickets.index')
+            ->route(
+                'tickets.index'
+            )
             ->with(
                 'sukses',
                 "Tiket #{$ticket->id} telah ditutup."
@@ -2398,45 +3524,53 @@ class TalangController extends Controller
     }
 
     // ===========================================================
-    // API METHODS
+    // API PRODUCTS
     // ===========================================================
 
     public function apiProducts()
     {
         $products =
-            Product::all()->map(
-                fn($p) => [
-                    'id' =>
-                        $p->id,
+            Product::all()
+                ->map(
+                    fn($p) => [
+                        'id' =>
+                            $p->id,
 
-                    'nama' =>
-                        $p->nama,
+                        'nama' =>
+                            $p->nama,
 
-                    'harga' =>
-                        $p->harga,
+                        'harga' =>
+                            $p->harga,
 
-                    'rating' =>
-                        $p->rating,
+                        'rating' =>
+                            $p->rating,
 
-                    'material' =>
-                        $p->material,
+                        'material' =>
+                            $p->material,
 
-                    'stok' =>
-                        $p->stok,
+                        'stok' =>
+                            $p->stok,
 
-                    'seller' =>
-                        $p->seller,
+                        'seller' =>
+                            $p->seller,
 
-                    'promo' =>
-                        $p->promo,
-                ]
-            );
+                        'promo' =>
+                            $p->promo,
+                    ]
+                );
 
         return response()->json([
-            'success' => true,
-            'data' => $products,
+            'success' =>
+                true,
+
+            'data' =>
+                $products,
         ]);
     }
+
+    // ===========================================================
+    // API ORDERS
+    // ===========================================================
 
     public function apiOrders()
     {
@@ -2449,6 +3583,7 @@ class TalangController extends Controller
         if (
             $user->role !== 'admin'
         ) {
+
             $query->where(
                 'customer_email',
                 $user->email
@@ -2472,6 +3607,15 @@ class TalangController extends Controller
                         'status' =>
                             $o->status,
 
+                        'subtotal' =>
+                            $o->subtotal,
+
+                        'discount' =>
+                            $o->discount ?? 0,
+
+                        'shipping_fee' =>
+                            $o->shipping_fee,
+
                         'grand_total' =>
                             $o->grand_total,
 
@@ -2481,35 +3625,54 @@ class TalangController extends Controller
                 );
 
         return response()->json([
-            'success' => true,
-            'data' => $orders,
+            'success' =>
+                true,
+
+            'data' =>
+                $orders,
         ]);
     }
+
+    // ===========================================================
+    // API SHOW ORDER
+    // ===========================================================
 
     public function apiShowOrder(
         Order $order
     ) {
+
         $user =
             Auth::user();
 
         if (
             $user->role !== 'admin'
-            && $order->customer_email
-                !== $user->email
+            &&
+            $order->customer_email !==
+                $user->email
         ) {
+
             abort(403);
         }
 
         return response()->json([
-            'success' => true,
+            'success' =>
+                true,
+
             'data' =>
-                $order->load('items'),
+                $order->load(
+                    'items'
+                ),
         ]);
     }
+
+    // ===========================================================
+    // API CREATE ORDER
+    // ===========================================================
 
     public function apiCreateOrder(
         Request $request
     ) {
+
         $request->validate([
             'nama' =>
                 'required|min:3',
@@ -2535,235 +3698,301 @@ class TalangController extends Controller
 
         $subtotal = 0;
 
+        $cartItems = [];
+
         foreach (
-            $request->items as $item
+            $request->items
+            as $item
         ) {
+
             $product =
                 Product::find(
                     $item['product_id']
                 );
 
             if (!$product) {
+
                 return response()->json(
                     [
-                        'success' => false,
+                        'success' =>
+                            false,
+
                         'message' =>
-                            'Produk tidak ditemukan'
+                            'Produk tidak ditemukan',
                     ],
                     404
                 );
             }
 
+            $quantity =
+                min(
+                    (int) $item['quantity'],
+                    (int) $product->stok
+                );
+
+            if ($quantity <= 0) {
+
+                return response()->json(
+                    [
+                        'success' =>
+                            false,
+
+                        'message' =>
+                            "Stok {$product->nama} tidak tersedia.",
+                    ],
+                    422
+                );
+            }
+
+            $itemSubtotal =
+                $product->harga *
+                $quantity;
+
             $subtotal +=
-                $product->harga
-                * $item['quantity'];
+                $itemSubtotal;
+
+            $cartItems[] = [
+                'id' =>
+                    $product->id,
+
+                'nama' =>
+                    $product->nama,
+
+                'harga' =>
+                    $product->harga,
+
+                'quantity' =>
+                    $quantity,
+
+                'stok' =>
+                    $product->stok,
+
+                'promo' =>
+                    $product->promo,
+
+                'subtotal' =>
+                    $itemSubtotal,
+            ];
         }
+
+        // =======================================================
+        // DISCOUNT API
+        // =======================================================
+
+        $discountData =
+            $this->calculateDiscount(
+                $cartItems,
+                $subtotal
+            );
+
+        $discount =
+            $discountData[
+                'discount'
+            ];
+
+        $discountedSubtotal =
+            max(
+                0,
+                $subtotal - $discount
+            );
+
+        // =======================================================
+        // SHIPPING
+        // =======================================================
 
         $shippingResult =
             $this->shippingService
                 ->calculateShippingFee(
                     $request->alamat,
-                    $request->items
+                    $cartItems
                 );
 
         $shippingFee =
-            $shippingResult['fee'];
+            (int) (
+                $shippingResult['fee']
+                ?? 0
+            );
+
+        if (
+            $discountData[
+                'freeShipping'
+            ]
+        ) {
+            $shippingFee = 0;
+        }
+
+        // =======================================================
+        // GRAND TOTAL
+        // =======================================================
 
         $grandTotal =
-            $subtotal
+            $discountedSubtotal
             + $shippingFee;
 
         $orderId =
             'TRX-'
             . strtoupper(
                 substr(
-                    uniqid('', true),
+                    uniqid(
+                        '',
+                        true
+                    ),
                     -6
                 )
             );
 
-        $metode =
-            $request->metode_pembayaran
-            ?? 'va';
+        // =======================================================
+        // CREATE ORDER
+        // =======================================================
 
-        if (
-            in_array(
-                strtolower($metode),
-                [
-                    'bca',
-                    'bca_va',
-                    'virtual_account',
-                    'virtual-account',
-                    'va',
-                ],
-                true
-            )
-        ) {
-            $metode = 'va';
-        }
+        $order =
+            Order::create([
+                'user_id' =>
+                    Auth::id(),
 
-        $order = Order::create([
-            'user_id' =>
-                Auth::id(),
+                'order_id' =>
+                    $orderId,
 
-            'order_id' =>
-                $orderId,
+                'customer_name' =>
+                    $request->nama,
 
-            'customer_name' =>
-                $request->nama,
+                'customer_email' =>
+                    $request->email,
 
-            'customer_email' =>
-                $request->email,
+                'telepon' =>
+                    $request->telepon,
 
-            'telepon' =>
-                $request->telepon,
+                'alamat' =>
+                    $request->alamat,
 
-            'alamat' =>
-                $request->alamat,
+                'payment_method' =>
+                    $request
+                        ->metode_pembayaran
+                        ?? 'va',
 
-            'payment_method' =>
-                $metode,
+                'subtotal' =>
+                    $subtotal,
 
-            'subtotal' =>
-                $subtotal,
+                'discount' =>
+                    $discount,
 
-            'shipping_fee' =>
-                $shippingFee,
+                'shipping_fee' =>
+                    $shippingFee,
 
-            'grand_total' =>
-                $grandTotal,
+                'grand_total' =>
+                    $grandTotal,
 
-            'status' =>
-                'menunggu_pembayaran',
+                'status' =>
+                    'menunggu_pembayaran',
 
-            'courier' =>
-                $shippingResult['provider']
-                ?? (
-                    $shippingResult['courier']
-                    ?? 'Belum ditentukan'
-                ),
-        ]);
+                'courier' =>
+                    $shippingResult[
+                        'courier'
+                    ]
+                    ?? (
+                        $shippingResult[
+                            'provider'
+                        ]
+                        ?? 'Belum ditentukan'
+                    ),
+            ]);
+
+        // =======================================================
+        // ITEMS
+        // =======================================================
 
         foreach (
-            $request->items as $item
+            $cartItems as $item
         ) {
-            $product =
-                Product::find(
-                    $item['product_id']
-                );
 
             $order->items()->create([
                 'product_id' =>
-                    $product->id,
+                    $item['id'],
 
                 'product_name' =>
-                    $product->nama,
+                    $item['nama'],
 
                 'quantity' =>
                     $item['quantity'],
 
                 'price' =>
-                    $product->harga,
+                    $item['harga'],
 
                 'subtotal' =>
-                    $product->harga
-                    * $item['quantity'],
+                    $item['subtotal'],
             ]);
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | BCA VA SIMULASI UNTUK API ORDER
-        |--------------------------------------------------------------------------
-        */
+        // =======================================================
+        // PAYMENT
+        // =======================================================
 
-        if (
-            $metode === 'va'
-        ) {
-            try {
+        try {
 
+            $invoiceUrl =
                 $this->paymentService
-                    ->createBcaVirtualAccount(
+                    ->createInvoice(
                         $order
                     );
 
-                $order->refresh();
+            $order->snap_token =
+                $invoiceUrl;
 
-            } catch (\Exception $e) {
+            $order->save();
 
-                Log::error(
-                    'API Order - BCA VA Error',
-                    [
-                        'order_id' =>
-                            $order->order_id,
+        } catch (\Exception $e) {
 
-                        'message' =>
-                            $e->getMessage(),
-                    ]
-                );
+            Log::error(
+                'API Order - Payment Error: '
+                . $e->getMessage()
+            );
+        }
 
-                return response()->json([
-                    'success' => false,
-                    'message' =>
-                        'Order berhasil dibuat tetapi Virtual Account gagal dibuat.',
-                    'order_id' =>
-                        $order->order_id,
-                ], 500);
-            }
-
-            return response()->json([
-                'success' => true,
+        return response()->json(
+            [
+                'success' =>
+                    true,
 
                 'data' => [
                     'order_id' =>
                         $order->order_id,
 
+                    'subtotal' =>
+                        $order->subtotal,
+
+                    'discount' =>
+                        $order->discount,
+
+                    'shipping_fee' =>
+                        $order->shipping_fee,
+
                     'grand_total' =>
                         $order->grand_total,
 
-                    'payment_method' =>
-                        $order->payment_method,
-
-                    'virtual_account' =>
-                        $order->virtual_account,
+                    'invoice_url' =>
+                        $order->snap_token,
 
                     'shipping' =>
                         $shippingResult,
+
+                    'free_shipping' =>
+                        $discountData[
+                            'freeShipping'
+                        ],
                 ],
-            ], 201);
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | METODE PEMBAYARAN NON-VA
-        |--------------------------------------------------------------------------
-        */
-
-        return response()->json([
-            'success' => true,
-
-            'data' => [
-                'order_id' =>
-                    $order->order_id,
-
-                'grand_total' =>
-                    $order->grand_total,
-
-                'payment_method' =>
-                    $order->payment_method,
-
-                'virtual_account' =>
-                    $order->virtual_account,
-
-                'shipping' =>
-                    $shippingResult,
             ],
-        ], 201);
+            201
+        );
     }
+
+    // ===========================================================
+    // API CALCULATE SHIPPING
+    // ===========================================================
 
     public function apiCalculateShipping(
         Request $request
     ) {
+
         $request->validate([
             'alamat' =>
                 'required|string|min:8',
@@ -2783,8 +4012,11 @@ class TalangController extends Controller
                 );
 
         return response()->json([
-            'success' => true,
-            'data' => $result,
+            'success' =>
+                true,
+
+            'data' =>
+                $result,
         ]);
     }
 }

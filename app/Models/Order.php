@@ -15,13 +15,14 @@ class Order extends Model
         'alamat',
         'payment_method',
         'subtotal',
+        'discount',
         'shipping_fee',
         'grand_total',
         'status',
-        'snap_token',
-        'virtual_account',
         'courier',
         'tracking_code',
+        'snap_token',
+        'virtual_account',
     ];
 
     public function items()

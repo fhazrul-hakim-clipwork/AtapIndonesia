@@ -28,47 +28,82 @@ Route::get('/', [TalangController::class, 'landing'])
 Route::get('/katalog', [TalangController::class, 'katalog'])
     ->name('katalog');
 
-// Keranjang
+
+/*
+|--------------------------------------------------------------------------
+| KERANJANG
+|--------------------------------------------------------------------------
+*/
+
+// Halaman keranjang tetap bisa dibuka tanpa login.
+// Jika belum login, keranjang dapat ditampilkan sebagai kosong.
 Route::get('/keranjang', [TalangController::class, 'cartIndex'])
     ->name('cart.index');
 
-Route::post('/keranjang/tambah', [TalangController::class, 'addToCart'])
-    ->name('cart.add');
 
-Route::post('/keranjang/beli-sekarang', [TalangController::class, 'buyNow'])
-    ->name('cart.buy_now');
+/*
+|--------------------------------------------------------------------------
+| KERANJANG - WAJIB LOGIN
+|--------------------------------------------------------------------------
+|
+| Semua aksi yang menambahkan / mengubah isi keranjang
+| hanya dapat dilakukan oleh user yang sudah login.
+|
+*/
 
-Route::post('/keranjang/update', [TalangController::class, 'updateCart'])
-    ->name('cart.update');
+Route::middleware([EnsureUserIsAuthenticated::class])->group(function () {
 
-Route::post('/keranjang/hapus', [TalangController::class, 'removeCart'])
-    ->name('cart.remove');
+    // Tambah produk ke keranjang
+    Route::post('/keranjang/tambah', [TalangController::class, 'addToCart'])
+        ->name('cart.add');
 
-Route::post('/keranjang/bersihkan', [TalangController::class, 'clearCart'])
-    ->name('cart.clear');
+    // Beli sekarang
+    Route::post('/keranjang/beli-sekarang', [TalangController::class, 'buyNow'])
+        ->name('cart.buy_now');
+
+    // Update jumlah produk
+    Route::post('/keranjang/update', [TalangController::class, 'updateCart'])
+        ->name('cart.update');
+
+    // Hapus produk dari keranjang
+    Route::post('/keranjang/hapus', [TalangController::class, 'removeCart'])
+        ->name('cart.remove');
+
+    // Bersihkan seluruh keranjang
+    Route::post('/keranjang/bersihkan', [TalangController::class, 'clearCart'])
+        ->name('cart.clear');
+
+});
 
 
 /*
 |--------------------------------------------------------------------------
 | CHECKOUT
 |--------------------------------------------------------------------------
+|
+| Checkout wajib login sebagai PEMBELI.
+|
 */
 
-// Halaman Checkout
-Route::get('/checkout', [TalangController::class, 'checkoutIndex'])
-    ->name('checkout.index');
+Route::middleware([EnsureUserIsAuthenticated::class])->group(function () {
 
-// Proses Checkout
-Route::post('/checkout/proses', [TalangController::class, 'processCheckout'])
-    ->name('checkout.process');
+    // Halaman Checkout
+    Route::get('/checkout', [TalangController::class, 'checkoutIndex'])
+        ->name('checkout.index');
 
-// Halaman Pembayaran
-Route::get('/checkout/pembayaran', [TalangController::class, 'paymentPage'])
-    ->name('checkout.payment');
+    // Proses Checkout
+    Route::post('/checkout/proses', [TalangController::class, 'processCheckout'])
+        ->name('checkout.process');
 
-// Halaman Shipping
-Route::get('/checkout/shipping', [TalangController::class, 'shippingPage'])
-    ->name('checkout.shipping');
+    // Halaman Pembayaran
+    Route::get('/checkout/pembayaran', [TalangController::class, 'paymentPage'])
+        ->name('checkout.payment');
+
+    // Halaman Shipping
+    Route::get('/checkout/shipping', [TalangController::class, 'shippingPage'])
+        ->name('checkout.shipping');
+
+});
 
 
 /*
@@ -106,6 +141,7 @@ Route::get('/login', [TalangController::class, 'showLogin'])
 Route::post('/login/proses', [TalangController::class, 'prosesLogin'])
     ->name('login.proses');
 
+
 // Register
 Route::get('/register', [TalangController::class, 'showRegister'])
     ->name('register');
@@ -113,9 +149,15 @@ Route::get('/register', [TalangController::class, 'showRegister'])
 Route::post('/register/proses', [TalangController::class, 'prosesRegister'])
     ->name('register.proses');
 
-// Logout
+
+// Logout Pembeli
 Route::get('/logout', [TalangController::class, 'logout'])
     ->name('logout');
+
+
+// Logout Admin
+Route::get('/admin/logout', [TalangController::class, 'adminLogout'])
+    ->name('admin.logout');
 
 
 /*
@@ -136,7 +178,7 @@ Route::get('/auth/google/callback', [GoogleAuthController::class, 'callback'])
 | DASHBOARD
 |--------------------------------------------------------------------------
 |
-| Semua route di bawah ini membutuhkan user yang sudah login.
+| Semua route dashboard membutuhkan autentikasi.
 |
 */
 
@@ -200,8 +242,15 @@ Route::middleware([EnsureUserIsAuthenticated::class])->group(function () {
     Route::get('/dashboard/admin/orders/{order}', [TalangController::class, 'adminOrderDetail'])
         ->name('admin.orders.show');
 
-    Route::post('/dashboard/admin/orders/{order}/update-shipping', [TalangController::class, 'adminUpdateShipping'])
-        ->name('admin.orders.update_shipping');
+    Route::post(
+        '/dashboard/admin/orders/{order}/update-shipping',
+        [TalangController::class, 'adminUpdateShipping']
+    )->name('admin.orders.update_shipping');
+
+    Route::post(
+        '/dashboard/admin/orders/{order}/confirm-payment',
+        [TalangController::class, 'adminConfirmPayment']
+    )->name('admin.orders.confirm_payment');
 
 
     /*
@@ -216,17 +265,26 @@ Route::middleware([EnsureUserIsAuthenticated::class])->group(function () {
     Route::get('/dashboard/admin/products/create', [TalangController::class, 'adminCreateProduct'])
         ->name('admin.products.create');
 
-    Route::get('/dashboard/admin/products/{product}/edit', [TalangController::class, 'adminEditProduct'])
-        ->name('admin.products.edit');
+    Route::get(
+        '/dashboard/admin/products/{product}/edit',
+        [TalangController::class, 'adminEditProduct']
+    )->name('admin.products.edit');
 
-    Route::post('/dashboard/admin/products', [TalangController::class, 'adminSaveProduct'])
-        ->name('admin.products.store');
+    Route::post(
+        '/dashboard/admin/products',
+        [TalangController::class, 'adminSaveProduct']
+    )->name('admin.products.store');
 
-    Route::post('/dashboard/admin/products/{product}', [TalangController::class, 'adminSaveProduct'])
-        ->name('admin.products.update');
+    Route::match(
+        ['POST', 'PUT'],
+        '/dashboard/admin/products/{product}',
+        [TalangController::class, 'adminSaveProduct']
+    )->name('admin.products.update');
 
-    Route::post('/dashboard/admin/products/{product}/delete', [TalangController::class, 'adminDeleteProduct'])
-        ->name('admin.products.destroy');
+    Route::post(
+        '/dashboard/admin/products/{product}/delete',
+        [TalangController::class, 'adminDeleteProduct']
+    )->name('admin.products.destroy');
 
 
     /*
@@ -235,11 +293,20 @@ Route::middleware([EnsureUserIsAuthenticated::class])->group(function () {
     |--------------------------------------------------------------------------
     */
 
-    Route::get('/dashboard/admin/invoices', [TalangController::class, 'adminInvoices'])
-        ->name('admin.invoices.index');
+    Route::get(
+        '/dashboard/admin/invoices',
+        [TalangController::class, 'adminInvoices']
+    )->name('admin.invoices.index');
 
-    Route::get('/dashboard/admin/invoices/{order}', [TalangController::class, 'adminInvoiceDetail'])
-        ->name('admin.invoices.show');
+    Route::post(
+        '/dashboard/admin/invoices/delete-all',
+        [TalangController::class, 'adminDeleteAllInvoices']
+    )->name('admin.invoices.delete_all');
+
+    Route::get(
+        '/dashboard/admin/invoices/{order}',
+        [TalangController::class, 'adminInvoiceDetail']
+    )->name('admin.invoices.show');
 
 
     /*
@@ -248,20 +315,30 @@ Route::middleware([EnsureUserIsAuthenticated::class])->group(function () {
     |--------------------------------------------------------------------------
     */
 
-    Route::get('/dashboard/admin/customers', [TalangController::class, 'adminCustomers'])
-        ->name('admin.customers.index');
+    Route::get(
+        '/dashboard/admin/customers',
+        [TalangController::class, 'adminCustomers']
+    )->name('admin.customers.index');
 
-    Route::get('/dashboard/admin/customers/{user}', [TalangController::class, 'adminCustomerDetail'])
-        ->name('admin.customers.show');
+    Route::get(
+        '/dashboard/admin/customers/{user}',
+        [TalangController::class, 'adminCustomerDetail']
+    )->name('admin.customers.show');
 
-    Route::get('/dashboard/admin/customers/{user}/edit', [TalangController::class, 'adminCustomerEdit'])
-        ->name('admin.customers.edit');
+    Route::get(
+        '/dashboard/admin/customers/{user}/edit',
+        [TalangController::class, 'adminCustomerEdit']
+    )->name('admin.customers.edit');
 
-    Route::post('/dashboard/admin/customers/{user}', [TalangController::class, 'adminCustomerUpdate'])
-        ->name('admin.customers.update');
+    Route::post(
+        '/dashboard/admin/customers/{user}',
+        [TalangController::class, 'adminCustomerUpdate']
+    )->name('admin.customers.update');
 
-    Route::post('/dashboard/admin/customers/{user}/delete', [TalangController::class, 'adminCustomerDestroy'])
-        ->name('admin.customers.destroy');
+    Route::post(
+        '/dashboard/admin/customers/{user}/delete',
+        [TalangController::class, 'adminCustomerDestroy']
+    )->name('admin.customers.destroy');
 
 });
 
@@ -273,6 +350,7 @@ Route::middleware([EnsureUserIsAuthenticated::class])->group(function () {
 */
 
 Route::prefix('api')->group(function () {
+
 
     /*
     |--------------------------------------------------------------------------
@@ -289,8 +367,10 @@ Route::prefix('api')->group(function () {
         |--------------------------------------------------------------------------
         */
 
-        Route::get('/products', [TalangController::class, 'apiProducts'])
-            ->name('api.products');
+        Route::get(
+            '/products',
+            [TalangController::class, 'apiProducts']
+        )->name('api.products');
 
 
         /*
@@ -299,14 +379,20 @@ Route::prefix('api')->group(function () {
         |--------------------------------------------------------------------------
         */
 
-        Route::get('/orders', [TalangController::class, 'apiOrders'])
-            ->name('api.orders');
+        Route::get(
+            '/orders',
+            [TalangController::class, 'apiOrders']
+        )->name('api.orders');
 
-        Route::post('/orders', [TalangController::class, 'apiCreateOrder'])
-            ->name('api.orders.create');
+        Route::post(
+            '/orders',
+            [TalangController::class, 'apiCreateOrder']
+        )->name('api.orders.create');
 
-        Route::get('/orders/{order}', [TalangController::class, 'apiShowOrder'])
-            ->name('api.orders.show');
+        Route::get(
+            '/orders/{order}',
+            [TalangController::class, 'apiShowOrder']
+        )->name('api.orders.show');
 
 
         /*
@@ -314,13 +400,14 @@ Route::prefix('api')->group(function () {
         | SHIPPING CALCULATION
         |--------------------------------------------------------------------------
         |
-        | PENTING:
         | Checkout menggunakan fetch() dengan method POST.
         |
         */
 
-        Route::post('/shipping/calculate', [TalangController::class, 'apiCalculateShipping'])
-            ->name('api.shipping.calculate');
+        Route::post(
+            '/shipping/calculate',
+            [TalangController::class, 'apiCalculateShipping']
+        )->name('api.shipping.calculate');
 
     });
 

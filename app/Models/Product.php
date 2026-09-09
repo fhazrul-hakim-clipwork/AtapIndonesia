@@ -19,5 +19,6 @@ class Product extends Model
         'seller',
         'promo',
         'best',
+        'image',
     ];
 }
