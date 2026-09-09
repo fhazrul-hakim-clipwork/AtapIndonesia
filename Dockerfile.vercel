@@ -2,11 +2,12 @@ FROM dunglas/frankenphp:1-php8.3
 
 WORKDIR /app
 
-# Install system tools required by Composer
+# Install system dependencies
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         unzip \
         zip \
+        git \
     && rm -rf /var/lib/apt/lists/*
 
 # Install PHP extensions
@@ -18,22 +19,24 @@ RUN install-php-extensions \
     opcache \
     zip
 
-# Verify ZIP extension and unzip before Composer
-RUN php -m | grep -i '^zip$' \
-    && unzip -v | head -n 1
+# Verify PHP ZIP extension
+RUN php -m | grep -i zip
+
+# Verify unzip command
+RUN which unzip && unzip -v | head -n 2
 
 # Install Composer
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
-# Copy application
+# Copy Laravel application
 COPY . .
 
-# Install Laravel dependencies
+# Install dependencies from source
 RUN composer install \
     --no-dev \
     --optimize-autoloader \
     --no-interaction \
-    --prefer-dist
+    --prefer-source
 
 # Clear Laravel caches
 RUN php artisan config:clear
