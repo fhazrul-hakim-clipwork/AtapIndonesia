@@ -1,16 +1,13 @@
-{
-auto_https off
+﻿{
+    auto_https off
 }
 
-:80 {
-root * /app/public
+:{$PORT:80} {
+    root * /app/public
 
-```
-encode gzip
+    encode gzip
 
-php_server
+    php_server
 
-file_server
-```
-
+    file_server
 }

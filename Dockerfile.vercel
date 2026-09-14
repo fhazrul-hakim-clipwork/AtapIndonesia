@@ -42,6 +42,6 @@ RUN composer install \
 RUN php artisan config:clear
 RUN php artisan route:clear
 
-EXPOSE 8080
+EXPOSE 80
 
 CMD ["frankenphp", "run", "--config", "/etc/caddy/Caddyfile"]
