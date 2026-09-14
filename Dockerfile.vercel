@@ -41,7 +41,6 @@ RUN composer install \
 # Clear Laravel caches
 RUN php artisan config:clear
 RUN php artisan route:clear
-RUN php artisan view:clear
 
 EXPOSE 8080
 
